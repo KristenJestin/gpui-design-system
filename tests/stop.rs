@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{Desktop, init};
+use common::init;
 use gpui_design_system::{Button, Icon};
 
 /// An application's solid glyph.
@@ -29,7 +29,7 @@ impl Render for Page {
 }
 
 fn page(cx: &mut TestAppContext) -> &mut gpui_kit::VisualTestContext {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(|_, _| Page);
     cx.simulate_resize(size(px(600.), px(200.)));
     cx.update(|window, cx| window.render_frame(cx));

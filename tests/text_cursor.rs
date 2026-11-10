@@ -6,7 +6,7 @@ mod common;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use common::{Desktop, init};
+use common::init;
 use gpui_design_system::{space, text_region};
 use gpui_kit::test::TestEventExt as _;
 use gpui_kit::{
@@ -37,7 +37,7 @@ impl Render for Message {
 
 #[gpui_kit::test]
 fn moving_the_pointer_across_a_selectable_text_keeps_one_cursor_style(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let hovered = Rc::new(RefCell::new(Vec::new()));
     let seen = hovered.clone();
     let (_, cx) = cx.add_window_view(move |_, _| Message { hovered: seen });

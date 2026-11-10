@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{Desktop, advance, init, pending_frames};
+use common::{advance, init, pending_frames};
 use gpui_design_system::motion::{ENTER, HOVER, MODAL};
 use gpui_design_system::{Align, Dropdown, MenuItem, Modal, Select, SelectOption};
 use gpui_kit::base::input::{Input, InputState};
@@ -76,7 +76,7 @@ impl Render for Page {
 }
 
 fn page(bottom: bool, cx: &mut TestAppContext) -> (Entity<Page>, &mut VisualTestContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (page, cx) = cx.add_window_view(move |_, _| Page {
         bottom,
         open: false,
@@ -286,7 +286,7 @@ impl Render for Dialog {
 }
 
 fn dialog(cx: &mut TestAppContext) -> (Entity<Dialog>, &mut VisualTestContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (dialog, cx) = cx.add_window_view(|window, cx| Dialog {
         open: false,
         closed: 0,
@@ -454,7 +454,7 @@ impl Render for Tall {
 fn a_modal_taller_than_the_window_scrolls_its_body_and_keeps_its_title_and_buttons(
     cx: &mut TestAppContext,
 ) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_tall, cx) = cx.add_window_view(|_, _| Tall { open: true });
     cx.simulate_resize(size(px(900.), px(500.)));
     advance(cx, MODAL * 2);
@@ -580,7 +580,7 @@ fn drawn_at(window: &Window, bounds: gpui_kit::Bounds<gpui_kit::Pixels>) -> usiz
 
 #[gpui_kit::test]
 fn a_select_opened_in_a_modal_is_drawn_above_the_modal(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(|_, _| Form {
         chosen: 0,
         scrim_closed: 0,
@@ -610,7 +610,7 @@ fn a_select_opened_in_a_modal_is_drawn_above_the_modal(cx: &mut TestAppContext) 
 fn a_select_opened_in_a_modal_hangs_from_its_field_and_its_options_can_be_chosen(
     cx: &mut TestAppContext,
 ) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (form, cx) = cx.add_window_view(|_, _| Form {
         chosen: 0,
         scrim_closed: 0,
@@ -681,7 +681,7 @@ impl Render for Large {
 }
 
 fn large(cx: &mut TestAppContext) -> (Entity<Large>, &mut VisualTestContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (large, cx) = cx.add_window_view(|_, _| Large {
         open: false,
         closed: 0,

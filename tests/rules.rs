@@ -9,7 +9,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::Duration;
 
-use common::{Desktop, advance, init, pending_frames};
+use common::{advance, init, pending_frames};
 use gpui_design_system::motion::{ENTER, HOVER, MODAL, PANEL};
 use gpui_design_system::{
     Block, Button, Card, Confirm, Drawer, EmptyLine, Field, Icon, ListCard, ListRow, Menu,
@@ -40,7 +40,7 @@ fn host(
     cx: &mut TestAppContext,
     draw: impl Fn(&mut Window, &mut Context<Host>) -> AnyElement + 'static,
 ) -> (Entity<Host>, &mut VisualTestContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (view, cx) = cx.add_window_view(move |_, _| Host {
         draw: Box::new(draw),
     });
@@ -250,7 +250,7 @@ fn a_confirmation_that_cannot_be_done_says_why_and_its_button_does_nothing(
 // ── 3. An action's result is a toast ───────────────────────────────────────────────────────────
 
 fn toasts(cx: &mut TestAppContext) -> (Entity<Host>, &mut VisualTestContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (view, cx) = cx.add_window_view(|_, cx| {
         let stack = cx.new(ToastStack::new);
         Host {
@@ -537,18 +537,13 @@ fn a_segment_that_cannot_be_chosen_is_shown_and_a_click_on_it_does_nothing(
     let seen = chosen.clone();
     let (_, cx) = host(cx, move |_, _| {
         let seen = seen.clone();
-        Segmented::new(
-            "theme",
-            "Theme",
-            [("omarchy", "Omarchy"), ("plain", "Plain")],
-            1,
-        )
-        .unavailable(0)
-        .on_choose(move |index, _, _| seen.set(Some(index)))
-        .into_any_element()
+        Segmented::new("theme", "Theme", [("dusk", "Dusk"), ("plain", "Plain")], 1)
+            .unavailable(0)
+            .on_choose(move |index, _, _| seen.set(Some(index)))
+            .into_any_element()
     });
-    assert!(shown("theme-omarchy", cx), "it stays in sight");
-    cx.update(|window, cx| window.click("theme-omarchy", cx));
+    assert!(shown("theme-dusk", cx), "it stays in sight");
+    cx.update(|window, cx| window.click("theme-dusk", cx));
     assert_eq!(chosen.get(), None, "it cannot be chosen");
 }
 
@@ -649,7 +644,7 @@ impl Render for Nothing {
 fn the_detail_drawer_slides_from_the_right_without_a_scrim_and_escape_closes_it(
     cx: &mut TestAppContext,
 ) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let slot: Rc<RefCell<Option<Entity<Drawer>>>> = Rc::default();
     let kept = slot.clone();
     let (_, cx) = cx.add_window_view(move |_, cx| {

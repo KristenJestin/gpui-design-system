@@ -4,7 +4,7 @@
 
 mod common;
 
-use common::{Desktop, advance, init, pending_frames};
+use common::{advance, init, pending_frames};
 use gpui_design_system::motion::{HOVER, TOOLTIP};
 use gpui_design_system::{Card, Icon, MenuItem, icon, path_line};
 use gpui_kit::test::TestWindowExt;
@@ -51,7 +51,7 @@ impl Render for Edit {
 }
 
 fn open<'a>(path: &'static str, cx: &'a mut TestAppContext) -> &'a mut VisualTestContext {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(move |_, _| Edit(path));
     cx.simulate_resize(size(px(800.), px(400.)));
     cx.update(|window, cx| window.render_frame(cx));
@@ -172,7 +172,7 @@ impl Render for Header {
 
 #[gpui_kit::test]
 fn a_long_title_stays_inside_its_page_header(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(|_, _| Header);
     cx.simulate_resize(size(px(800.), px(400.)));
     cx.update(|window, cx| window.render_frame(cx));
@@ -202,7 +202,7 @@ impl Render for Words {
 
 #[gpui_kit::test]
 fn a_long_card_title_stays_inside_the_card(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(|_, _| Words);
     cx.simulate_resize(size(px(800.), px(400.)));
     cx.update(|window, cx| window.render_frame(cx));
@@ -217,7 +217,7 @@ fn a_long_card_title_stays_inside_the_card(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn a_menu_entry_that_quotes_an_item_title_stays_on_one_line(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(|_, _| Menu);
     cx.simulate_resize(size(px(800.), px(400.)));
     cx.update(|window, cx| window.render_frame(cx));

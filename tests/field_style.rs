@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{Desktop, advance, init};
+use common::{advance, init};
 use gpui_design_system::theme::{Shade, set_palette};
 use gpui_design_system::{Palette, StyledField, field_style, follow_theme, palette};
 use gpui_kit::base::input::InputEditorStyle;
@@ -59,7 +59,7 @@ fn dark(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn a_field_made_in_light_takes_the_dark_colours_after_a_switch(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     cx.update(|cx| cx.set_reduce_motion(true));
     light(cx);
     let field = made(cx);
@@ -79,7 +79,7 @@ fn a_field_made_in_light_takes_the_dark_colours_after_a_switch(cx: &mut TestAppC
 
 #[gpui_kit::test]
 fn a_field_follows_the_palette_through_its_cross_fade(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     cx.update(|cx| cx.set_reduce_motion(true));
     light(cx);
     cx.update(|cx| cx.set_reduce_motion(false));
@@ -109,7 +109,7 @@ fn a_field_follows_the_palette_through_its_cross_fade(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn the_caret_is_the_accent_colour_on_both_themes(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     cx.update(|cx| cx.set_reduce_motion(true));
     for shade in [Shade::Light, Shade::Dark] {
         cx.update(|cx| set_palette(Palette::own(shade), cx));

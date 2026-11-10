@@ -1,20 +1,19 @@
-//! Every component and every state of `gpui-design-system` on one page, still: nothing needs a pointer
-//! to be seen, so the page can be captured in a headless compositor.
+//! Every component and every state of `gpui-design-system` on one page, still: nothing needs a
+//! pointer to be seen, so the page can be captured in a headless compositor.
 //!
 //! ```text
 //! cargo run -p gpui-design-system --example gallery [-- --os-release <path>] [--drawer]
 //! ```
 //!
-//! The theme is chosen as the window chooses it: Omarchy's when the os-release says `ID=omarchy`
-//! (`--os-release` points at another file than `/etc/os-release`), read from
-//! `$XDG_STATE_HOME/omarchy/current/theme/colors.toml`. `--drawer` shows the right drawer open.
+//! The theme is chosen as an application's is: the desktop's when the kit has a source for this
+//! desktop and its theme can be used (`--os-release` points at another file than
+//! `/etc/os-release`), the kit's own look otherwise. `--drawer` shows the right drawer open.
 
 use std::path::PathBuf;
 
-use gpui_design_system::omarchy::Environment;
 use gpui_design_system::{
-    Badge, Button, Card, Drawer, Fold, Icon, Icons, ListRow, PulsingLabel, Side, TreeRow, Type,
-    enter, icon, meta, palette, section_label, tree_children,
+    Badge, Button, Card, Drawer, Fold, Icon, Icons, Identity, ListRow, PulsingLabel, Side, TreeRow,
+    Type, enter, icon, meta, palette, section_label, tree_children,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -23,18 +22,18 @@ use gpui_kit::{
 };
 
 fn main() {
-    let mut env = Environment::from_system();
+    let mut os_release = None;
     let mut drawer = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--os-release" => env.os_release = PathBuf::from(args.next().expect("a path")),
+            "--os-release" => os_release = Some(PathBuf::from(args.next().expect("a path"))),
             "--drawer" => drawer = true,
             other => panic!("unknown argument {other}"),
         }
     }
     gpui_kit::application().with_assets(Icons).run(move |cx| {
-        gpui_design_system::init_with(gpui_design_system::Identity::new("Kit"), env, cx);
+        gpui_design_system::init(identity(os_release), cx);
         let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Maximized(bounds)),
@@ -43,6 +42,24 @@ fn main() {
         gpui_kit::open_window(options, cx, |_, cx| cx.new(|cx| Gallery::new(drawer, cx)))
             .expect("a window");
     });
+}
+
+/// The kit's own look: the kit is built without a desktop source.
+#[cfg(not(feature = "omarchy"))]
+fn identity(_os_release: Option<PathBuf>) -> Identity {
+    Identity::new("Kit")
+}
+
+#[cfg(feature = "omarchy")]
+/// The kit's own look, and Omarchy's theme when the os-release says `ID=omarchy`, read from
+/// `$XDG_STATE_HOME/omarchy/current/theme/colors.toml`.
+fn identity(os_release: Option<PathBuf>) -> Identity {
+    use gpui_design_system::omarchy::{Environment, Omarchy};
+    let mut env = Environment::from_system();
+    if let Some(os_release) = os_release {
+        env.os_release = os_release;
+    }
+    Identity::new("Kit").desktop(Omarchy::new(env))
 }
 
 struct Member {

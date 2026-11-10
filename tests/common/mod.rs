@@ -1,4 +1,4 @@
-//! What the scenario suites share: a desktop of temporary files, and ways to count frames.
+//! What the scenario suites share: the kit initialised, and ways to count frames.
 #![allow(dead_code)]
 
 pub mod subpage;
@@ -7,47 +7,16 @@ use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use gpui_design_system::omarchy::Environment;
 use gpui_kit::{Entity, TestAppContext, VisualTestContext};
 
-/// A desktop of temporary files: an os-release and a state folder.
-pub struct Desktop {
-    pub dir: tempfile::TempDir,
-}
-
-impl Desktop {
-    pub fn new(omarchy: bool) -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let id = if omarchy { "omarchy" } else { "arch" };
-        std::fs::write(
-            dir.path().join("os-release"),
-            format!("NAME=Test\nID={id}\n"),
-        )
-        .unwrap();
-        Self { dir }
-    }
-
-    pub fn env(&self) -> Environment {
-        Environment {
-            os_release: self.dir.path().join("os-release"),
-            state_home: self.dir.path().join("state"),
-        }
-    }
-
-    pub fn write_colors(&self, text: &str) {
-        let path = self.env().colors_path();
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, text).unwrap();
-    }
-}
-
-pub fn init(cx: &mut TestAppContext, env: Environment) {
-    init_as(gpui_design_system::Identity::new("Kit"), cx, env);
+/// Initialises the kit for an application with its own look and no desktop source.
+pub fn init(cx: &mut TestAppContext) {
+    init_as(gpui_design_system::Identity::new("Kit"), cx);
 }
 
 /// [`init`] for the application `identity`.
-pub fn init_as(identity: gpui_design_system::Identity, cx: &mut TestAppContext, env: Environment) {
-    cx.update(|cx| gpui_design_system::init_with(identity, env, cx));
+pub fn init_as(identity: gpui_design_system::Identity, cx: &mut TestAppContext) {
+    cx.update(|cx| gpui_design_system::init(identity, cx));
     cx.run_until_parked();
 }
 

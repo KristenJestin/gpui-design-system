@@ -1,3 +1,4 @@
+#![cfg(feature = "omarchy")]
 //! Omarchy mode: on an Omarchy desktop the palette comes from the current Omarchy theme, and
 //! follows it live.
 //!
@@ -5,20 +6,21 @@
 //! foregrounds give the surfaces and text levels, its `accent` the primary, its blue, yellow,
 //! green and red the states. Missing keys are derived by mixing `background` and `foreground`;
 //! every ink is then checked for contrast and moved until it reads. A theme missing a required
-//! key, or unreadable, leaves the base theme in place, with the reason logged.
+//! key, or unreadable, is not used, with the reason.
 //!
-//! The user chooses ([`appear`]): Omarchy, or one of the application's own themes (see
-//! [`Identity`](crate::Identity)), light or dark, even on an Omarchy desktop. Omarchy chosen and no
-//! theme that can be used, the application's first theme in its shade.
+//! [`Omarchy`] is a [`DesktopTheme`]: what is shown, the fallback and the live follow are the
+//! kit's ([`appearance`](crate::appearance)). Built only with the kit's `omarchy` feature.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
-use gpui_kit::{App, Global, Hsla, SharedString};
+use gpui_kit::Hsla;
 
+use crate::appearance::DesktopTheme;
 use crate::color::{hex, mix, over, parse_hex};
-use crate::theme::{self, Palette, Shade};
+use crate::theme::Palette;
 
 /// Where the desktop is described; injectable so tests never read the real machine.
 #[derive(Clone, Debug)]
@@ -165,182 +167,63 @@ pub fn palette_from_toml(text: &str) -> Result<Palette, String> {
     .with_readable_inks())
 }
 
-/// The theme to use, and why the base theme was kept when Omarchy's could not be.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Choice {
-    /// Not an Omarchy desktop.
-    Base,
-    Omarchy(Box<Palette>),
-    /// An Omarchy desktop whose theme could not be used.
-    Fallback(String),
-}
-
-impl Choice {
-    pub fn palette(&self) -> Palette {
-        match self {
-            Self::Omarchy(palette) => **palette,
-            Self::Base | Self::Fallback(_) => Palette::base(),
-        }
-    }
-}
-
-pub fn choose(env: &Environment) -> Choice {
-    if !env.is_omarchy() {
-        return Choice::Base;
-    }
-    let path = env.colors_path();
-    match std::fs::read_to_string(&path) {
-        Ok(text) => {
-            palette_from_toml(&text).map_or_else(Choice::Fallback, |p| Choice::Omarchy(Box::new(p)))
-        }
-        Err(e) => Choice::Fallback(format!("cannot read {}: {e}", path.display())),
-    }
-}
-
-/// What the desktop last gave, and what the user wants of it.
-struct Desktop {
-    /// The Omarchy theme as last read.
-    read: Choice,
-    wanted: Appearance,
-}
-
-impl Default for Desktop {
-    fn default() -> Self {
-        Self {
-            read: Choice::Base,
-            wanted: Appearance::default(),
-        }
-    }
-}
-
-impl Global for Desktop {}
-
-/// The last reason the Omarchy theme was set aside, kept beside the log line for whoever asks.
-pub fn last_fallback(cx: &App) -> Option<String> {
-    match cx.try_global::<Desktop>().map(|d| &d.read) {
-        Some(Choice::Fallback(reason)) => Some(reason.clone()),
-        _ => None,
-    }
-}
-
-/// The Omarchy theme as read now.
-fn apply(choice: Choice, cx: &mut App) {
-    if let Choice::Fallback(reason) = &choice {
-        crate::identity::log(
-            cx,
-            format_args!("the Omarchy theme is not used, the base theme is: {reason}"),
-        );
-    }
-    cx.default_global::<Desktop>().read = choice;
-    show(cx);
-}
-
-/// Cross-fades to the palette of what is shown.
-fn show(cx: &mut App) {
-    let shown = shown(cx);
-    let palette = match (&shown.source, &cx.default_global::<Desktop>().read) {
-        (Source::Omarchy, Choice::Omarchy(palette)) => **palette,
-        (Source::Theme(id), _) => (crate::identity::identity(cx).theme(id).palette)(shown.shade),
-        // Not shown: Omarchy is shown only when its theme can be used.
-        (Source::Omarchy, _) => Palette::base(),
-    };
-    theme::set_palette(palette, cx);
-}
-
-/// Where the window's colours come from, as the user chose it.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub enum Source {
-    /// The desktop's current Omarchy theme, followed live.
-    #[default]
-    Omarchy,
-    /// One of the application's own themes, by its id, in the shade chosen.
-    Theme(SharedString),
-}
-
-/// The user's choice of the window's colours: Omarchy, or one of the application's own themes,
-/// light or dark. The shade is kept with Omarchy too: it is the application's own when no Omarchy
-/// theme can be used.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Appearance {
-    pub source: Source,
-    pub shade: Shade,
-}
-
-/// Uses `appearance` from now on, cross-fading to its palette.
-pub fn appear(appearance: Appearance, cx: &mut App) {
-    let desktop = cx.default_global::<Desktop>();
-    if desktop.wanted == appearance {
-        return;
-    }
-    desktop.wanted = appearance;
-    show(cx);
-}
-
-/// The appearance the window shows: the one chosen, or the application's first theme in the shade
-/// chosen when Omarchy is chosen and cannot be used, or when the theme chosen is not one of the
-/// application's.
-pub fn shown(cx: &App) -> Appearance {
-    let desktop = cx.try_global::<Desktop>();
-    let wanted = desktop.map(|d| d.wanted.clone()).unwrap_or_default();
-    let usable = desktop.is_some_and(|d| matches!(d.read, Choice::Omarchy(_)));
-    let source = match wanted.source {
-        Source::Omarchy if usable => Source::Omarchy,
-        Source::Omarchy => Source::Theme(crate::identity::identity(cx).themes[0].id.clone()),
-        Source::Theme(id) => Source::Theme(crate::identity::identity(cx).theme(&id).id.clone()),
-    };
-    Appearance {
-        source,
-        shade: wanted.shade,
-    }
-}
-
-/// Why Omarchy cannot be chosen here: no Omarchy theme on this desktop, or one that cannot be
-/// used. `None` when it can.
-pub fn omarchy_refused(cx: &App) -> Option<String> {
-    let name = crate::identity::identity(cx).name;
-    match cx.try_global::<Desktop>().map(|d| &d.read) {
-        Some(Choice::Omarchy(_)) => None,
-        Some(Choice::Fallback(reason)) => Some(format!(
-            "The Omarchy theme cannot be used ({reason}): the window uses {name}'s colours."
-        )),
-        Some(Choice::Base) | None => Some(format!(
-            "Not an Omarchy desktop: the window uses {name}'s colours."
-        )),
-    }
-}
-
-/// How often the theme file is looked at. A look is one `stat`; nothing is redrawn unless the
-/// file changed.
-pub const POLL: Duration = Duration::from_secs(1);
-
 /// What identifies one version of the theme file: the file behind the `current` link, and its
 /// modification time.
-fn stamp(path: &Path) -> Option<(PathBuf, SystemTime)> {
+type Stamp = Option<(PathBuf, SystemTime)>;
+
+fn stamp(path: &Path) -> Stamp {
     let real = std::fs::canonicalize(path).ok()?;
     let modified = std::fs::metadata(&real).and_then(|m| m.modified()).ok()?;
     Some((real, modified))
 }
 
-/// Sets the palette from `env`, and on an Omarchy desktop keeps following the theme file.
-pub fn install(env: Environment, cx: &mut App) {
-    apply(choose(&env), cx);
-    if !env.is_omarchy() {
-        return;
+/// The current Omarchy theme, as a desktop source: an application offers it with
+/// `Identity::new(..).desktop(Omarchy::from_system())`.
+#[derive(Debug)]
+pub struct Omarchy {
+    env: Environment,
+    /// The version of the theme file last read.
+    seen: RefCell<Stamp>,
+}
+
+impl Omarchy {
+    /// The Omarchy of the desktop described by `env`.
+    pub fn new(env: Environment) -> Self {
+        let seen = RefCell::new(stamp(&env.colors_path()));
+        Self { env, seen }
     }
-    let path = env.colors_path();
-    let mut seen = stamp(&path);
-    cx.spawn(async move |cx| {
-        loop {
-            cx.background_executor().timer(POLL).await;
-            let now = stamp(&path);
-            if now != seen {
-                seen = now;
-                let choice = choose(&env);
-                cx.update(|cx| apply(choice, cx));
-            }
-        }
-    })
-    .detach();
+
+    /// The Omarchy of this machine.
+    pub fn from_system() -> Self {
+        Self::new(Environment::from_system())
+    }
+}
+
+impl DesktopTheme for Omarchy {
+    fn id(&self) -> &'static str {
+        "omarchy"
+    }
+
+    fn name(&self) -> &'static str {
+        "Omarchy"
+    }
+
+    fn available(&self) -> bool {
+        self.env.is_omarchy()
+    }
+
+    fn read(&self) -> Result<Palette, String> {
+        let path = self.env.colors_path();
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        palette_from_toml(&text)
+    }
+
+    /// One `stat` of the theme file: a theme switch points `current` elsewhere, or rewrites it.
+    fn changed(&self) -> bool {
+        let now = stamp(&self.env.colors_path());
+        now != self.seen.replace(now.clone())
+    }
 }
 
 #[cfg(test)]

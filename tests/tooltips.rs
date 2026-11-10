@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{Desktop, advance, init, pending_frames};
+use common::{advance, init, pending_frames};
 use gpui_design_system::motion::{HOVER, TOOLTIP};
 use gpui_design_system::{Button, Icon};
 use gpui_kit::test::TestWindowExt;
@@ -37,7 +37,7 @@ impl Render for Page {
 }
 
 fn page(place: Place, cx: &mut TestAppContext) -> (Entity<Page>, &mut VisualTestContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (page, cx) = cx.add_window_view(move |_, _| Page(place));
     cx.simulate_resize(size(px(600.), px(500.)));
     (page, cx)
@@ -149,7 +149,7 @@ fn the_tooltip_of_a_button_whose_menu_is_open_stays_hidden(cx: &mut TestAppConte
                 .child(Button::icon("copy", Icon::Copy, "Copy").tooltip_hidden(true))
         }
     }
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(|_, _| Hidden);
     cx.simulate_resize(size(px(600.), px(500.)));
     hover_and_wait(cx);
@@ -205,7 +205,7 @@ impl Render for Mark {
 fn any_element_can_carry_the_anchored_tooltip_and_the_tooltip_says_its_words(
     cx: &mut TestAppContext,
 ) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(|_, _| Mark);
     cx.simulate_resize(size(px(600.), px(500.)));
     cx.update(|window, cx| window.hover("mark", cx));

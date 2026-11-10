@@ -1,16 +1,69 @@
-//! Omarchy mode, on GPUI's test platform, with the desktop described by temporary files.
+#![cfg(feature = "omarchy")]
+//! The Omarchy desktop source, on GPUI's test platform, with the desktop described by temporary
+//! files.
 
 mod common;
 
 use std::path::Path;
 use std::time::Duration;
 
-use common::{Desktop, init};
-use gpui_design_system::Palette;
+use common::init_as;
+use gpui_design_system::appearance::{self, Appearance, POLL, Source};
 use gpui_design_system::color::{TEXT_CONTRAST, contrast, hex};
-use gpui_design_system::omarchy::{self, Appearance, Source};
+use gpui_design_system::omarchy::{Environment, Omarchy};
 use gpui_design_system::theme::{Shade, palette, target_palette};
+use gpui_design_system::{Identity, Palette};
 use gpui_kit::{SharedString, TestAppContext};
+
+/// A desktop of temporary files: an os-release and a state folder.
+struct Desktop {
+    dir: tempfile::TempDir,
+}
+
+impl Desktop {
+    fn new(omarchy: bool) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let id = if omarchy { "omarchy" } else { "arch" };
+        std::fs::write(
+            dir.path().join("os-release"),
+            format!("NAME=Test\nID={id}\n"),
+        )
+        .unwrap();
+        Self { dir }
+    }
+
+    fn env(&self) -> Environment {
+        Environment {
+            os_release: self.dir.path().join("os-release"),
+            state_home: self.dir.path().join("state"),
+        }
+    }
+
+    fn write_colors(&self, text: &str) {
+        let path = self.env().colors_path();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+    }
+}
+
+/// An application with the kit's own look, offering Omarchy's theme, on `desktop`.
+fn init(cx: &mut TestAppContext, desktop: &Desktop) {
+    init_as(app("Kit", desktop), cx);
+}
+
+fn app(name: &'static str, desktop: &Desktop) -> Identity {
+    Identity::new(name).desktop(Omarchy::new(desktop.env()))
+}
+
+const OMARCHY: Source = Source::Desktop(SharedString::new_static("omarchy"));
+
+fn last_fallback(cx: &TestAppContext) -> Option<String> {
+    appearance::fallback("omarchy", &cx.app.borrow())
+}
+
+fn omarchy_refused(cx: &mut TestAppContext) -> Option<String> {
+    cx.update(|cx| appearance::refused("omarchy", cx))
+}
 
 /// A theme of invented colours, every key given.
 const THEME: &str = r##"
@@ -51,7 +104,7 @@ fn tokens_of(p: &Palette) -> [(&'static str, u32); 8] {
 fn omarchy_a_temporary_colors_toml_is_mapped_to_the_expected_tokens(cx: &mut TestAppContext) {
     let desktop = Desktop::new(true);
     desktop.write_colors(THEME);
-    init(cx, desktop.env());
+    init(cx, &desktop);
     let p = cx.update(|cx| palette(cx));
     assert_eq!(
         tokens_of(&p),
@@ -78,7 +131,7 @@ fn omarchy_a_temporary_colors_toml_is_mapped_to_the_expected_tokens(cx: &mut Tes
     );
     // The derived tokens sit between the background and the foreground.
     assert!(p.bg.l < p.card2.l && p.card2.l < p.line.l && p.line.l < p.line2.l);
-    assert!(omarchy::last_fallback(&cx.app.borrow()).is_none());
+    assert!(last_fallback(cx).is_none());
 }
 
 #[gpui_kit::test]
@@ -86,7 +139,7 @@ fn omarchy_a_theme_with_a_low_contrast_accent_gets_a_readable_ink(cx: &mut TestA
     let desktop = Desktop::new(true);
     desktop
         .write_colors("background = \"#1e1e1e\"\nforeground = \"#d4d4d4\"\naccent = \"#262626\"\n");
-    init(cx, desktop.env());
+    init(cx, &desktop);
     let p = cx.update(|cx| palette(cx));
     assert_eq!(p.acc, hex(0x262626));
     assert!(
@@ -105,9 +158,9 @@ fn omarchy_a_missing_required_key_falls_back_to_the_base_theme_with_the_reason_l
 ) {
     let desktop = Desktop::new(true);
     desktop.write_colors("background = \"#0e1116\"\nforeground = \"#c9d1d9\"\n");
-    init(cx, desktop.env());
+    init(cx, &desktop);
     assert_eq!(cx.update(|cx| palette(cx)), Palette::base());
-    let reason = omarchy::last_fallback(&cx.app.borrow()).expect("a reason is logged");
+    let reason = last_fallback(cx).expect("a reason is logged");
     assert!(
         reason.contains("accent"),
         "the reason names the key: {reason}"
@@ -118,7 +171,7 @@ fn omarchy_a_missing_required_key_falls_back_to_the_base_theme_with_the_reason_l
 fn omarchy_changing_the_file_changes_the_palette(cx: &mut TestAppContext) {
     let desktop = Desktop::new(true);
     desktop.write_colors(THEME);
-    init(cx, desktop.env());
+    init(cx, &desktop);
     assert_eq!(cx.update(|cx| palette(cx)).acc, hex(0xf0883e));
 
     // A theme switch points `current` elsewhere; here the file is rewritten, later in time.
@@ -126,7 +179,7 @@ fn omarchy_changing_the_file_changes_the_palette(cx: &mut TestAppContext) {
     desktop.write_colors(&THEME.replace("#f0883e", "#7aa2f7"));
     touch_later(&desktop.env().colors_path());
     cx.executor()
-        .advance_clock(omarchy::POLL + Duration::from_millis(10));
+        .advance_clock(POLL + Duration::from_millis(10));
     cx.run_until_parked();
     assert_eq!(cx.update(|cx| target_palette(cx)).acc, hex(0x7aa2f7));
     // The palette cross-fades, then settles on the new theme.
@@ -148,9 +201,9 @@ fn without_omarchy_the_base_theme_is_used(cx: &mut TestAppContext) {
     let desktop = Desktop::new(false);
     // An Omarchy theme left on disk is not enough: the desktop must be Omarchy.
     desktop.write_colors(THEME);
-    init(cx, desktop.env());
+    init(cx, &desktop);
     assert_eq!(cx.update(|cx| palette(cx)), Palette::base());
-    assert!(omarchy::last_fallback(&cx.app.borrow()).is_none());
+    assert!(last_fallback(cx).is_none());
 }
 
 const OWN_LIGHT: Appearance = Appearance {
@@ -159,7 +212,7 @@ const OWN_LIGHT: Appearance = Appearance {
 };
 
 fn appear(appearance: Appearance, cx: &mut TestAppContext) {
-    cx.update(|cx| omarchy::appear(appearance, cx));
+    cx.update(|cx| appearance::appear(appearance, cx));
     cx.run_until_parked();
 }
 
@@ -169,18 +222,18 @@ fn choosing_the_own_palette_on_omarchy_uses_it_and_stops_following_the_theme(
 ) {
     let desktop = Desktop::new(true);
     desktop.write_colors(THEME);
-    init(cx, desktop.env());
-    assert_eq!(cx.update(|cx| omarchy::shown(cx)).source, Source::Omarchy);
+    init(cx, &desktop);
+    assert_eq!(cx.update(|cx| appearance::shown(cx)).source, OMARCHY);
 
     appear(OWN_LIGHT, cx);
     assert_eq!(cx.update(|cx| target_palette(cx)), Palette::light());
-    assert_eq!(cx.update(|cx| omarchy::shown(cx)), OWN_LIGHT);
+    assert_eq!(cx.update(|cx| appearance::shown(cx)), OWN_LIGHT);
     // A theme switched on the desktop meanwhile leaves the own palette in place.
     std::thread::sleep(Duration::from_millis(20));
     desktop.write_colors(&THEME.replace("#f0883e", "#7aa2f7"));
     touch_later(&desktop.env().colors_path());
     cx.executor()
-        .advance_clock(omarchy::POLL + Duration::from_millis(10));
+        .advance_clock(POLL + Duration::from_millis(10));
     cx.run_until_parked();
     assert_eq!(cx.update(|cx| target_palette(cx)), Palette::light());
 
@@ -196,7 +249,7 @@ fn choosing_the_own_palette_on_omarchy_uses_it_and_stops_following_the_theme(
     // Back to Omarchy: the desktop's theme as it is now.
     appear(
         Appearance {
-            source: Source::Omarchy,
+            source: OMARCHY,
             shade: Shade::Dark,
         },
         cx,
@@ -207,7 +260,7 @@ fn choosing_the_own_palette_on_omarchy_uses_it_and_stops_following_the_theme(
 #[gpui_kit::test]
 fn a_new_appearance_cross_fades_then_settles(cx: &mut TestAppContext) {
     let desktop = Desktop::new(false);
-    init(cx, desktop.env());
+    init(cx, &desktop);
     appear(OWN_LIGHT, cx);
     // Partway, the colours sit between the two palettes.
     let early = cx.update(|cx| palette(cx));
@@ -226,14 +279,12 @@ fn a_new_appearance_cross_fades_then_settles(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn off_omarchy_the_omarchy_choice_is_refused_and_the_own_palette_is_shown(cx: &mut TestAppContext) {
     let desktop = Desktop::new(false);
-    init(cx, desktop.env());
-    let why = cx
-        .update(|cx| omarchy::omarchy_refused(cx))
-        .expect("Omarchy cannot be chosen");
+    init(cx, &desktop);
+    let why = omarchy_refused(cx).expect("Omarchy cannot be chosen");
     assert!(why.contains("Omarchy"), "{why}");
     // Omarchy wanted, by default: what is shown is the own palette, in the shade kept.
     assert_eq!(
-        cx.update(|cx| omarchy::shown(cx)),
+        cx.update(|cx| appearance::shown(cx)),
         Appearance {
             source: Source::Theme(SharedString::new_static("own")),
             shade: Shade::Dark,
@@ -241,23 +292,21 @@ fn off_omarchy_the_omarchy_choice_is_refused_and_the_own_palette_is_shown(cx: &m
     );
     appear(
         Appearance {
-            source: Source::Omarchy,
+            source: OMARCHY,
             shade: Shade::Light,
         },
         cx,
     );
     assert_eq!(cx.update(|cx| target_palette(cx)), Palette::light());
-    assert_eq!(cx.update(|cx| omarchy::shown(cx)), OWN_LIGHT);
+    assert_eq!(cx.update(|cx| appearance::shown(cx)), OWN_LIGHT);
 }
 
 #[gpui_kit::test]
 fn an_omarchy_theme_that_cannot_be_used_says_why_it_cannot_be_chosen(cx: &mut TestAppContext) {
     let desktop = Desktop::new(true);
     desktop.write_colors("background = \"#0e1116\"\nforeground = \"#c9d1d9\"\n");
-    init(cx, desktop.env());
-    let why = cx
-        .update(|cx| omarchy::omarchy_refused(cx))
-        .expect("Omarchy cannot be chosen");
+    init(cx, &desktop);
+    let why = omarchy_refused(cx).expect("Omarchy cannot be chosen");
     assert!(why.contains("accent"), "{why}");
 }
 
@@ -271,10 +320,9 @@ fn orange(shade: Shade) -> Palette {
 #[gpui_kit::test]
 fn the_palette_an_application_gives_is_the_one_shown_off_omarchy(cx: &mut TestAppContext) {
     let desktop = Desktop::new(false);
-    let identity = gpui_design_system::Identity::new("Notes")
-        .themes([gpui_design_system::Theme::new("own", "Notes", orange)]);
-    cx.update(|cx| gpui_design_system::init_with(identity, desktop.env(), cx));
-    cx.run_until_parked();
+    let identity =
+        app("Notes", &desktop).themes([gpui_design_system::Theme::new("own", "Notes", orange)]);
+    init_as(identity, cx);
     assert_eq!(cx.update(|cx| target_palette(cx)), orange(Shade::Dark));
     appear(
         Appearance {
@@ -289,15 +337,7 @@ fn the_palette_an_application_gives_is_the_one_shown_off_omarchy(cx: &mut TestAp
 #[gpui_kit::test]
 fn the_refusal_to_follow_omarchy_names_the_application(cx: &mut TestAppContext) {
     let desktop = Desktop::new(false);
-    cx.update(|cx| {
-        gpui_design_system::init_with(
-            gpui_design_system::Identity::new("Notes"),
-            desktop.env(),
-            cx,
-        )
-    });
-    let why = cx
-        .update(|cx| omarchy::omarchy_refused(cx))
-        .expect("Omarchy cannot be chosen");
+    init_as(app("Notes", &desktop), cx);
+    let why = omarchy_refused(cx).expect("Omarchy cannot be chosen");
     assert!(why.contains("Notes's colours"), "{why}");
 }

@@ -5,7 +5,7 @@ mod common;
 
 use std::time::Duration;
 
-use common::{Desktop, advance, count_redraws, init, pending_frames};
+use common::{advance, count_redraws, init, pending_frames};
 use gpui_design_system::motion::PANEL;
 use gpui_design_system::theme::{palette, set_palette};
 use gpui_design_system::{Fold, Palette};
@@ -51,7 +51,7 @@ fn fold_height(cx: &mut VisualTestContext) -> Pixels {
 
 #[gpui_kit::test]
 fn a_fold_animates_and_then_stops(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (page, cx) = page(cx);
     let fold = page.read_with(cx, |p, _| p.fold.clone());
     assert_eq!(fold_height(cx), px(120.));
@@ -86,7 +86,7 @@ fn a_fold_animates_and_then_stops(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn with_reduced_motion_values_jump_to_their_target(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     cx.update(|cx| cx.set_reduce_motion(true));
     let (page, cx) = page(cx);
     let fold = page.read_with(cx, |p, _| p.fold.clone());

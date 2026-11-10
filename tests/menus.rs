@@ -7,7 +7,7 @@ mod common;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use common::{Desktop, advance, init};
+use common::{advance, init};
 use gpui_design_system::motion::ENTER;
 use gpui_design_system::{Icon, Menu};
 use gpui_kit::test::TestWindowExt;
@@ -40,7 +40,7 @@ fn opened(
     cx: &mut TestAppContext,
     make: impl Fn(&mut Context<Menu>) -> Menu + 'static,
 ) -> &mut VisualTestContext {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let kept: Rc<RefCell<Option<Entity<Menu>>>> = Rc::default();
     let (_, cx) = cx.add_window_view(move |_, _| Host {
         draw: Box::new(move |_, cx| {

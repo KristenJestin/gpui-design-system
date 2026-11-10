@@ -5,7 +5,7 @@ mod common;
 use std::cell::Cell;
 use std::rc::Rc;
 
-use common::{Desktop, advance, init, pending_frames};
+use common::{advance, init, pending_frames};
 use gpui_design_system::motion::PANEL;
 use gpui_design_system::{Drawer, Side};
 use gpui_kit::test::TestWindowExt;
@@ -34,7 +34,7 @@ impl Render for Host {
 
 #[gpui_kit::test]
 fn a_drawer_is_closed_by_its_scrim(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (host, cx) = cx.add_window_view(|_, cx| {
         let content = cx.new(|_| Empty);
         Host {
@@ -93,7 +93,7 @@ fn knob_offset(cx: &mut gpui_kit::VisualTestContext) -> gpui_kit::Pixels {
 
 #[gpui_kit::test]
 fn a_switch_slides_its_knob_to_its_place_over_frames(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (host, cx) = cx.add_window_view(|_, _| Toggled { on: false });
     let off = knob_offset(cx);
 
@@ -125,7 +125,7 @@ fn a_switch_slides_its_knob_to_its_place_over_frames(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn with_reduced_motion_a_switch_jumps(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     cx.update(|cx| cx.set_reduce_motion(true));
     let (_, cx) = cx.add_window_view(|_, _| Toggled { on: false });
     let off = knob_offset(cx);

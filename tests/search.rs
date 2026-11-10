@@ -6,7 +6,7 @@
 
 mod common;
 
-use common::{Desktop, advance, init, pending_frames};
+use common::{advance, init, pending_frames};
 use gpui_design_system::motion::{HOVER, MODAL};
 use gpui_design_system::{ListRow, Modal, forget_overlays, keys_held, pressable};
 use gpui_kit::test::TestWindowExt;
@@ -81,7 +81,7 @@ impl Render for Search {
 }
 
 fn search(cx: &mut TestAppContext) -> (Entity<Search>, &mut VisualTestContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (search, cx) = cx.add_window_view(|_, cx| Search {
         open: false,
         marked: 0,
@@ -217,7 +217,7 @@ impl Render for Pressed {
 
 #[gpui_kit::test]
 fn a_pressable_element_moves_when_pressed_and_when_released(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(|_, _| Pressed);
     cx.simulate_resize(gpui_kit::size(px(400.), px(200.)));
     let at = cx.update(|window, _| window.find("field").bounds().center());

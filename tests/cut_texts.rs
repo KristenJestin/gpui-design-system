@@ -3,7 +3,7 @@
 
 mod common;
 
-use common::{Desktop, advance, init, pending_frames};
+use common::{advance, init, pending_frames};
 use gpui_design_system::motion::{HOVER, TOOLTIP};
 use gpui_design_system::{ListRow, TreeRow};
 use gpui_kit::test::TestWindowExt;
@@ -34,7 +34,7 @@ impl Render for Rows {
 }
 
 fn open<'a>(title: &'static str, cx: &'a mut TestAppContext) -> &'a mut VisualTestContext {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(move |_, _| Rows(title));
     cx.simulate_resize(size(px(800.), px(400.)));
     cx.update(|window, cx| window.render_frame(cx));

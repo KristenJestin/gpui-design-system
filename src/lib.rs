@@ -5,6 +5,7 @@
 //! motion. A second, slightly different version of one of them is a defect. The kit knows nothing
 //! of what an application is about: the application tells it its name and its look at [`init`].
 
+pub mod appearance;
 pub mod button;
 pub mod card;
 pub mod color;
@@ -24,6 +25,7 @@ pub mod menu;
 pub mod modal;
 pub mod model_choice;
 pub mod motion;
+#[cfg(feature = "omarchy")]
 pub mod omarchy;
 pub mod page;
 pub mod path;
@@ -43,6 +45,7 @@ pub mod typography;
 
 use gpui_kit::App;
 
+pub use appearance::{Appearance, DesktopTheme, Source};
 pub use button::{Badge, Button, ButtonKind, Tooltip, tipped};
 pub use card::{Block, Card};
 pub use confirm::Confirm;
@@ -63,7 +66,6 @@ pub use listing::{Item, Listing, Placement};
 pub use menu::Menu;
 pub use modal::Modal;
 pub use model_choice::{Chosen, ModelChoice, ModelEntry};
-pub use omarchy::Environment;
 pub use page::{EmptyLine, PageHeader, Section};
 pub use path::path_line;
 pub use radio::RadioChoices;
@@ -86,16 +88,12 @@ pub use toast::{Toast, ToastKind, ToastStack, toast};
 pub use typography::Type;
 
 /// Initialises gpui-kit (which reads the system's reduced-motion setting), the bundled fonts and
-/// the theme of this desktop, for the application `identity`. Register [`Icons`], or assets that
-/// serve it, as the application's assets.
+/// the theme, for the application `identity`: its first desktop source's when it offers one and
+/// it can be used, its first theme's otherwise. Register [`Icons`], or assets that serve it, as
+/// the application's assets.
 pub fn init(identity: Identity, cx: &mut App) {
-    init_with(identity, Environment::from_system(), cx);
-}
-
-/// [`init`] with the desktop described by `env` rather than read from the machine.
-pub fn init_with(identity: Identity, env: Environment, cx: &mut App) {
     gpui_kit::init(cx);
     cx.set_global(identity);
     typography::register(cx);
-    omarchy::install(env, cx);
+    appearance::install(cx);
 }

@@ -1,8 +1,12 @@
 //! What an application tells the kit about itself at [`init`](crate::init): its name, which the
-//! kit says in the lines it logs and the reasons it gives, and its own themes.
+//! kit says in the lines it logs and the reasons it gives, its own themes, and the desktops whose
+//! theme it offers to follow.
+
+use std::rc::Rc;
 
 use gpui_kit::{App, Global};
 
+use crate::appearance::DesktopTheme;
 use crate::theme::{Palette, Theme};
 
 /// The application using the kit.
@@ -13,6 +17,9 @@ pub struct Identity {
     /// Its own themes, never empty: what is shown when the desktop's theme is not followed. The
     /// first is shown when the one chosen is not among them.
     pub themes: Vec<Theme>,
+    /// The desktop theme sources it offers, in that order; the first is followed until the user
+    /// chooses otherwise. None: its own themes only.
+    pub desktops: Vec<Rc<dyn DesktopTheme>>,
 }
 
 impl Identity {
@@ -22,6 +29,7 @@ impl Identity {
         Self {
             name,
             themes: vec![Theme::new("own", name, Palette::own)],
+            desktops: Vec::new(),
         }
     }
 
@@ -33,6 +41,13 @@ impl Identity {
     pub fn themes(mut self, themes: impl IntoIterator<Item = Theme>) -> Self {
         self.themes = themes.into_iter().collect();
         assert!(!self.themes.is_empty(), "an application gives a theme");
+        self
+    }
+
+    /// The same application offering the theme of the desktop `source` too, after the ones it
+    /// already offers.
+    pub fn desktop(mut self, source: impl DesktopTheme) -> Self {
+        self.desktops.push(Rc::new(source));
         self
     }
 

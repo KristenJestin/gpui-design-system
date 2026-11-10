@@ -7,7 +7,7 @@ mod common;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use common::{Desktop, advance, init, pending_frames};
+use common::{advance, init, pending_frames};
 use gpui_design_system::motion::{ENTER, PANEL};
 use gpui_design_system::{Chosen, ModelChoice, ModelEntry};
 use gpui_kit::test::{TestQueryExt as _, TestWindowExt};
@@ -58,7 +58,7 @@ impl Render for Host {
 }
 
 fn host(cx: &mut TestAppContext, chosen: Chosen) -> (Entity<Host>, &mut VisualTestContext, Seen) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let seen = Rc::new(RefCell::new(Vec::new()));
     let given = seen.clone();
     let (view, cx) = cx.add_window_view(move |_, _| Host {

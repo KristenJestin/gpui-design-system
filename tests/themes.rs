@@ -4,9 +4,9 @@ mod common;
 
 use std::time::Duration;
 
-use common::{Desktop, init_as};
+use common::init_as;
+use gpui_design_system::appearance::{self, Appearance, Source};
 use gpui_design_system::color::hex;
-use gpui_design_system::omarchy::{self, Appearance, Source};
 use gpui_design_system::theme::{Shade, palette, target_palette};
 use gpui_design_system::{Identity, Palette, Theme};
 use gpui_kit::TestAppContext;
@@ -34,7 +34,7 @@ fn theme(id: &'static str, shade: Shade) -> Appearance {
 }
 
 fn appear(appearance: Appearance, cx: &mut TestAppContext) {
-    cx.update(|cx| omarchy::appear(appearance, cx));
+    cx.update(|cx| appearance::appear(appearance, cx));
     cx.run_until_parked();
 }
 
@@ -42,7 +42,7 @@ fn appear(appearance: Appearance, cx: &mut TestAppContext) {
 fn an_application_with_two_themes_switches_between_them_with_the_same_cross_fade(
     cx: &mut TestAppContext,
 ) {
-    init_as(notes(), cx, Desktop::new(false).env());
+    init_as(notes(), cx);
     // Nothing chosen and no desktop theme: the first of the application's themes.
     assert_eq!(
         cx.update(|cx| target_palette(cx)),
@@ -52,7 +52,7 @@ fn an_application_with_two_themes_switches_between_them_with_the_same_cross_fade
     appear(theme("ember", Shade::Dark), cx);
     assert_eq!(cx.update(|cx| target_palette(cx)), ember(Shade::Dark));
     assert_eq!(
-        cx.update(|cx| omarchy::shown(cx)),
+        cx.update(|cx| appearance::shown(cx)),
         theme("ember", Shade::Dark)
     );
     // Partway, the primary sits between the two themes': no jump.
@@ -76,11 +76,11 @@ fn an_application_with_two_themes_switches_between_them_with_the_same_cross_fade
 
 #[gpui_kit::test]
 fn a_theme_the_application_no_longer_gives_shows_its_first_one(cx: &mut TestAppContext) {
-    init_as(notes(), cx, Desktop::new(false).env());
+    init_as(notes(), cx);
     appear(theme("gone", Shade::Light), cx);
     assert_eq!(cx.update(|cx| target_palette(cx)), Palette::light());
     assert_eq!(
-        cx.update(|cx| omarchy::shown(cx)),
+        cx.update(|cx| appearance::shown(cx)),
         theme("plain", Shade::Light)
     );
 }
@@ -90,6 +90,6 @@ fn an_application_that_gives_no_theme_has_the_kit_s_own_under_its_name(cx: &mut 
     let identity = Identity::new("Notes");
     assert_eq!(identity.themes.len(), 1);
     assert_eq!(identity.themes[0].name.as_ref(), "Notes");
-    init_as(identity, cx, Desktop::new(false).env());
+    init_as(identity, cx);
     assert_eq!(cx.update(|cx| target_palette(cx)), Palette::base());
 }

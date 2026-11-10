@@ -49,9 +49,9 @@ fn main() {
     gpui_kit::application().with_assets(Icons).run(move |cx| {
         gpui_design_system::init(gpui_design_system::Identity::new("Components"), cx);
         if light {
-            gpui_design_system::omarchy::appear(
-                gpui_design_system::omarchy::Appearance {
-                    source: gpui_design_system::omarchy::Source::Theme("own".into()),
+            gpui_design_system::appearance::appear(
+                gpui_design_system::Appearance {
+                    source: gpui_design_system::Source::Theme("own".into()),
                     shade: gpui_design_system::theme::Shade::Light,
                 },
                 cx,

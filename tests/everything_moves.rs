@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use common::subpage::Settings;
-use common::{Desktop, advance, init, pending_frames};
+use common::{advance, init, pending_frames};
 use gpui_design_system::motion::{ENTER, HOVER, MAX_STAGGER, PANEL, RISE, STAGGER};
 use gpui_design_system::{
     Button, Item, Listing, Segmented, Tabs, changing, enter, presence, presence_of, selectable,
@@ -54,7 +54,7 @@ fn hovered(
     reduce: bool,
     cx: &mut TestAppContext,
 ) -> (gpui_kit::Entity<Hovered>, Seen, &mut VisualTestContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     cx.update(|cx| cx.set_reduce_motion(reduce));
     let seen = Seen::default();
     let shared = seen.clone();
@@ -138,7 +138,7 @@ impl Render for Choices {
 
 #[gpui_kit::test]
 fn a_choice_button_moves_its_fill_over_frames_and_then_stops(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (view, cx) = cx.add_window_view(|_, _| Choices { on: false });
     cx.update(|window, cx| window.render_frame(cx));
     advance(cx, PANEL);
@@ -179,7 +179,7 @@ impl Render for Modes {
 fn a_segmented_control_reports_the_segment_clicked_and_its_chosen_one_is_selected(
     cx: &mut TestAppContext,
 ) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let chosen = Rc::new(Cell::new(None));
     let seen = chosen.clone();
     let (view, cx) = cx.add_window_view(move |_, _| Modes {
@@ -208,7 +208,7 @@ fn a_segmented_control_reports_the_segment_clicked_and_its_chosen_one_is_selecte
 
 #[gpui_kit::test]
 fn a_segmented_control_slides_its_highlight_over_frames_and_then_stops(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (view, cx) = cx.add_window_view(|_, _| Modes {
         auto: false,
         chosen: Rc::default(),
@@ -234,12 +234,7 @@ struct Reach {
 
 impl Render for Reach {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        let segmented = Segmented::new(
-            "theme",
-            "Theme",
-            [("omarchy", "Omarchy"), ("plain", "Plain")],
-            1,
-        );
+        let segmented = Segmented::new("theme", "Theme", [("dusk", "Dusk"), ("plain", "Plain")], 1);
         div().size_full().child(if self.taken {
             segmented.unavailable(0)
         } else {
@@ -249,7 +244,7 @@ impl Render for Reach {
 }
 
 fn reach(cx: &mut TestAppContext) -> (gpui_kit::Entity<Reach>, &mut VisualTestContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (view, cx) = cx.add_window_view(|_, _| Reach { taken: false });
     cx.update(|window, cx| window.render_frame(cx));
     advance(cx, HOVER * 2);
@@ -287,7 +282,7 @@ fn a_segment_that_is_unavailable_has_no_hover(cx: &mut TestAppContext) {
     let (view, cx) = reach(cx);
     take(&view, true, cx);
     advance(cx, HOVER * 2);
-    cx.update(|window, cx| window.hover("theme-omarchy", cx));
+    cx.update(|window, cx| window.hover("theme-dusk", cx));
     assert_eq!(pending_frames(cx), 0, "the pointer on it moves nothing");
 }
 
@@ -342,7 +337,7 @@ fn pages(
     Rc<Cell<Option<usize>>>,
     &mut VisualTestContext,
 ) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let picked = Rc::new(Cell::new(None));
     let seen = picked.clone();
     let (view, cx) = cx.add_window_view(move |_, _| Pages {
@@ -432,7 +427,7 @@ impl Render for Enabling {
 
 #[gpui_kit::test]
 fn a_button_that_becomes_enabled_fades_to_it_and_then_stops(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (view, cx) = cx.add_window_view(|_, _| Enabling { on: false });
     cx.update(|window, cx| window.render_frame(cx));
     advance(cx, PANEL);
@@ -494,7 +489,7 @@ fn rows<'a>(
     items: &[&'static str],
     cx: &'a mut TestAppContext,
 ) -> (gpui_kit::Entity<Rows>, &'a mut VisualTestContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let items = items.to_vec();
     let (view, cx) = cx.add_window_view(move |_, _| Rows {
         list: Listing::default(),
@@ -607,7 +602,7 @@ fn a_row_that_moves_slides_from_where_it_was_to_its_place(cx: &mut TestAppContex
 fn a_rising_row_that_moves_slides_too_as_the_tree_s_rows_do(cx: &mut TestAppContext) {
     // Rising from its first frame, as the tree's rows are: its height was never measured by a
     // fold.
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (view, cx) = cx.add_window_view(|_, _| Rows {
         list: Listing::default(),
         items: vec!["a", "b"],
@@ -713,7 +708,7 @@ fn blocks<'a>(
     line: Option<&str>,
     cx: &'a mut TestAppContext,
 ) -> (gpui_kit::Entity<Blocks>, &'a mut VisualTestContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let line = line.map(|line| SharedString::from(line.to_owned()));
     let (view, cx) = cx.add_window_view(move |_, _| Blocks { shown, line });
     cx.update(|window, cx| window.render_frame(cx));
@@ -808,7 +803,7 @@ impl Render for Entrances {
 
 #[gpui_kit::test]
 fn an_entrance_waits_for_at_most_a_few_siblings_however_long_the_list(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(|_, _| Entrances);
     cx.update(|window, cx| window.render_frame(cx));
     let at_rest = top("far", cx) - px(RISE);
@@ -840,7 +835,7 @@ impl Render for Tinted {
 
 #[gpui_kit::test]
 fn a_colour_that_changes_moves_through_the_colours_between_and_stops(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (black, white) = (
         gpui_kit::rgb(0x000000).into(),
         gpui_kit::rgb(0xffffff).into(),
@@ -891,7 +886,7 @@ impl Render for Said {
 fn a_line_whose_text_changes_fades_back_in_over_hover_and_then_stops_asking_for_frames(
     cx: &mut TestAppContext,
 ) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (view, cx) = cx.add_window_view(|_, _| Said {
         text: "first".into(),
     });
@@ -931,7 +926,7 @@ impl Render for Titled {
 
 #[gpui_kit::test]
 fn a_tree_row_whose_title_changes_fades_to_the_new_one(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (view, cx) = cx.add_window_view(|_, _| Titled {
         title: "write the release notes".into(),
     });
@@ -966,7 +961,7 @@ fn left(id: &str, cx: &mut VisualTestContext) -> Pixels {
 
 #[gpui_kit::test]
 fn the_page_slides_in_and_the_list_out(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(|_, _| Settings::new());
     let list = left("feat-specs", cx);
     advance(cx, PANEL);
@@ -1011,7 +1006,7 @@ fn the_page_slides_in_and_the_list_out(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn reduced_motion_jumps_between_list_and_page(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     cx.update(|cx| cx.set_reduce_motion(true));
     let (_, cx) = cx.add_window_view(|_, _| Settings::new());
     let list = left("feat-specs", cx);
@@ -1034,7 +1029,7 @@ fn reduced_motion_jumps_between_list_and_page(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn going_back_the_page_slides_out_and_fades_while_the_list_comes_back(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(|_, _| Settings::new());
     let list = left("feat-specs", cx);
     cx.update(|window, cx| window.click("feat-review", cx));

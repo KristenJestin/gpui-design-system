@@ -5,7 +5,7 @@ mod common;
 
 use std::time::Duration;
 
-use common::{Desktop, advance, init, pending_frames};
+use common::{advance, init, pending_frames};
 use gpui_design_system::motion::PANEL;
 use gpui_design_system::skeleton::blocks_drawn;
 use gpui_design_system::{Skeleton, awaiting};
@@ -39,7 +39,7 @@ fn top(id: &str, cx: &mut VisualTestContext) -> Pixels {
 
 #[gpui_kit::test]
 fn a_skeleton_is_a_block_of_the_size_of_the_line_it_stands_for(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(|_, _| Bare);
     cx.update(|window, cx| window.render_frame(cx));
     let bounds = cx.update(|window, _| window.find("block".to_owned()).bounds());
@@ -49,7 +49,7 @@ fn a_skeleton_is_a_block_of_the_size_of_the_line_it_stands_for(cx: &mut TestAppC
 
 #[gpui_kit::test]
 fn a_skeleton_keeps_pulsing_while_it_is_drawn(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(|_, _| Bare);
     cx.update(|window, cx| window.render_frame(cx));
     let first = blocks_drawn();
@@ -63,7 +63,7 @@ fn a_skeleton_keeps_pulsing_while_it_is_drawn(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn a_skeleton_is_drawn_at_the_pace_of_a_slow_pulse_and_no_faster(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (_, cx) = cx.add_window_view(|_, _| Bare);
     cx.update(|window, cx| window.render_frame(cx));
     let first = blocks_drawn();
@@ -77,7 +77,7 @@ fn a_skeleton_is_drawn_at_the_pace_of_a_slow_pulse_and_no_faster(cx: &mut TestAp
 
 #[gpui_kit::test]
 fn with_reduced_motion_a_skeleton_is_still(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     cx.update(|cx| cx.set_reduce_motion(true));
     let (_, cx) = cx.add_window_view(|_, _| Bare);
     cx.update(|window, cx| window.render_frame(cx));
@@ -114,7 +114,7 @@ fn waiting(
     content: f32,
     cx: &mut TestAppContext,
 ) -> (gpui_kit::Entity<Waiting>, &mut VisualTestContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (view, cx) = cx.add_window_view(move |_, _| Waiting { pending, content });
     cx.update(|window, cx| window.render_frame(cx));
     (view, cx)
@@ -211,7 +211,7 @@ fn a_part_known_from_its_first_frame_is_just_there(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn with_reduced_motion_the_content_replaces_its_skeleton_at_once(cx: &mut TestAppContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     cx.update(|cx| cx.set_reduce_motion(true));
     let (view, cx) = cx.add_window_view(|_, _| Waiting {
         pending: true,

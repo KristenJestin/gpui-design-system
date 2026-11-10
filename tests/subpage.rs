@@ -3,13 +3,13 @@
 mod common;
 
 use common::subpage::Settings;
-use common::{Desktop, advance, init, pending_frames};
+use common::{advance, init, pending_frames};
 use gpui_design_system::motion::PANEL;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{Entity, TestAppContext, VisualTestContext};
 
 fn settings(cx: &mut TestAppContext) -> (Entity<Settings>, &mut VisualTestContext) {
-    init(cx, Desktop::new(false).env());
+    init(cx);
     let (view, cx) = cx.add_window_view(|_, _| Settings::new());
     cx.update(|window, cx| window.render_frame(cx));
     (view, cx)
