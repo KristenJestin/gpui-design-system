@@ -4,12 +4,12 @@
 mod common;
 
 use common::{advance, init, pending_frames};
-use gpui_design_system::motion::PANEL;
+use gpui_design_system::motion::{HOVER, PANEL};
 use gpui_design_system::{Icon, Subpage};
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
     Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled, TestAppContext,
-    VisualTestContext, Window, div, px,
+    VisualTestContext, Window, div, point, px,
 };
 
 /// A list of three entries, the keys in `off` faded, that says what it was told.
@@ -224,5 +224,37 @@ fn a_list_with_faded_entries_draws_nothing_at_rest(cx: &mut TestAppContext) {
     let (_, cx) = features(&["specs", "notes"], cx);
     assert_eq!(pending_frames(cx), 0);
     advance(cx, PANEL * 2);
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn the_link_of_a_faded_entry_fades_its_ink_in_and_out_on_hover(cx: &mut TestAppContext) {
+    let (_, cx) = features(&["specs"], cx);
+    assert_eq!(
+        pending_frames(cx),
+        0,
+        "nothing moves before the pointer comes"
+    );
+
+    cx.update(|window, cx| window.hover("feat-specs-off", cx));
+    assert!(
+        pending_frames(cx) > 0,
+        "the ink is on its way, not switched at once"
+    );
+    advance(cx, HOVER * 2);
+    assert_eq!(pending_frames(cx), 0, "and it stops once it has arrived");
+
+    cx.simulate_mouse_move(point(px(600.), px(400.)), None, Default::default());
+    assert!(pending_frames(cx) > 0, "it goes out the same way");
+    advance(cx, HOVER * 2);
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn with_reduced_motion_the_link_of_a_faded_entry_changes_ink_at_once(cx: &mut TestAppContext) {
+    let (_, cx) = features(&["specs"], cx);
+    cx.update(|_, cx| cx.set_reduce_motion(true));
+    cx.update(|window, cx| window.hover("feat-specs-off", cx));
+    advance(cx, std::time::Duration::from_millis(16));
     assert_eq!(pending_frames(cx), 0);
 }

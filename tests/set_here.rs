@@ -5,11 +5,11 @@ mod common;
 
 use common::{advance, count_redraws, init, pending_frames};
 use gpui_design_system::SetHere;
-use gpui_design_system::motion::PANEL;
+use gpui_design_system::motion::{HOVER, PANEL};
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
     Context, Entity, InteractiveElement as _, IntoElement, ParentElement, Pixels, Render, Styled,
-    TestAppContext, TestSupportExt as _, VisualTestContext, Window, div, px,
+    TestAppContext, TestSupportExt as _, VisualTestContext, Window, div, point, px,
 };
 
 struct Row {
@@ -146,5 +146,37 @@ fn a_mark_at_rest_draws_nothing(cx: &mut TestAppContext) {
     let redraws = count_redraws(&view, cx);
     advance(cx, PANEL * 2);
     assert_eq!(redraws.get(), 0);
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn the_way_back_fades_its_ink_in_and_out_on_hover(cx: &mut TestAppContext) {
+    let (_, cx) = row(true, cx);
+    assert_eq!(
+        pending_frames(cx),
+        0,
+        "nothing moves before the pointer comes"
+    );
+
+    cx.update(|window, cx| window.hover("lang-reset", cx));
+    assert!(
+        pending_frames(cx) > 0,
+        "the ink is on its way, not switched at once"
+    );
+    advance(cx, HOVER * 2);
+    assert_eq!(pending_frames(cx), 0, "and it stops once it has arrived");
+
+    cx.simulate_mouse_move(point(px(600.), px(400.)), None, Default::default());
+    assert!(pending_frames(cx) > 0, "it goes out the same way");
+    advance(cx, HOVER * 2);
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn with_reduced_motion_the_way_back_changes_ink_at_once(cx: &mut TestAppContext) {
+    let (_, cx) = row(true, cx);
+    cx.update(|_, cx| cx.set_reduce_motion(true));
+    cx.update(|window, cx| window.hover("lang-reset", cx));
+    advance(cx, std::time::Duration::from_millis(16));
     assert_eq!(pending_frames(cx), 0);
 }
