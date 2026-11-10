@@ -22,6 +22,11 @@ gpui-design-system = { git = "https://github.com/KristenJestin/gpui-design-syste
 gpui-kit = { version = "=0.8.0", default-features = false, features = ["assets", "gpui-fast"] }
 ```
 
+Every version is a tag that never moves, with a release and its changelog: `vX.Y.Z` for a stable
+release, `vX.Y.Z-beta.N` for each commit of `main`, `vX.Y.Z-alpha.<branch>.N` for each push of a
+feature branch (deleted with the branch). Pin a stable tag; take a beta or an alpha only while
+trying something. See [`docs/releases.md`](docs/releases.md).
+
 The kit is built on `gpui-kit =0.8.0` with GPUI Fast. Keep `gpui-fast` at 0.1.10 in your
 `Cargo.lock` (`cargo update -p gpui-fast --precise 0.1.10`): 0.1.11 breaks `gpui-base` 0.8.
 
