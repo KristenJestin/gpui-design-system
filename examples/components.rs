@@ -51,7 +51,7 @@ fn main() {
         if light {
             gpui_design_system::omarchy::appear(
                 gpui_design_system::omarchy::Appearance {
-                    source: gpui_design_system::omarchy::Source::Own,
+                    source: gpui_design_system::omarchy::Source::Theme("own".into()),
                     shade: gpui_design_system::theme::Shade::Light,
                 },
                 cx,

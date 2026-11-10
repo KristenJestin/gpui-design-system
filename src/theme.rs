@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use gpui_kit::{App, Global, Hsla, Pixels, px};
+use gpui_kit::{App, Global, Hsla, Pixels, SharedString, px};
 
 use crate::color::{TEXT_CONTRAST, hex, mix, over, readable};
 use crate::motion::{COVER, Motion};
@@ -248,16 +248,39 @@ pub mod radius {
     pub const BUTTON: Pixels = px(7.);
 }
 
-/// The palette in use, cross-fading toward a new one when the theme changes.
+/// A look an application gives: an id the user's choice keeps, a name a person reads, and its
+/// palette in each shade.
+#[derive(Clone, Debug)]
 pub struct Theme {
+    pub id: SharedString,
+    pub name: SharedString,
+    pub palette: fn(Shade) -> Palette,
+}
+
+impl Theme {
+    pub fn new(
+        id: impl Into<SharedString>,
+        name: impl Into<SharedString>,
+        palette: fn(Shade) -> Palette,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            palette,
+        }
+    }
+}
+
+/// The palette in use, cross-fading toward a new one when the theme changes.
+pub struct Colours {
     from: Palette,
     to: Palette,
     fade: Motion,
 }
 
-impl Global for Theme {}
+impl Global for Colours {}
 
-impl Theme {
+impl Colours {
     fn new(palette: Palette) -> Self {
         Self {
             from: palette,
@@ -269,7 +292,7 @@ impl Theme {
 
 /// The tokens to draw with now.
 pub fn palette(cx: &App) -> Palette {
-    let Some(theme) = cx.try_global::<Theme>() else {
+    let Some(theme) = cx.try_global::<Colours>() else {
         return Palette::base();
     };
     let now = cx.background_executor().now();
@@ -281,7 +304,7 @@ pub fn palette(cx: &App) -> Palette {
 
 /// The palette the theme is heading to.
 pub fn target_palette(cx: &App) -> Palette {
-    cx.try_global::<Theme>()
+    cx.try_global::<Colours>()
         .map_or_else(Palette::base, |theme| theme.to)
 }
 
@@ -290,13 +313,13 @@ pub fn target_palette(cx: &App) -> Palette {
 pub fn set_palette(palette: Palette, cx: &mut App) {
     let now = cx.background_executor().now();
     let reduce = cx.reduce_motion();
-    if !cx.has_global::<Theme>() {
-        cx.set_global(Theme::new(palette));
+    if !cx.has_global::<Colours>() {
+        cx.set_global(Colours::new(palette));
         cx.refresh_windows();
         return;
     }
     let current = self::palette(cx);
-    let theme = cx.global_mut::<Theme>();
+    let theme = cx.global_mut::<Colours>();
     if theme.to == palette {
         return;
     }
@@ -314,10 +337,10 @@ pub fn set_palette(palette: Palette, cx: &mut App) {
             cx.background_executor().timer(FADE_FRAME).await;
             let running = cx.update(|cx| {
                 // The fields that follow the theme restyle themselves a frame at a time.
-                cx.global_mut::<Theme>();
+                cx.global_mut::<Colours>();
                 cx.refresh_windows();
                 let now = cx.background_executor().now();
-                cx.try_global::<Theme>()
+                cx.try_global::<Colours>()
                     .is_some_and(|theme| theme.fade.is_running(now))
             });
             if !running {

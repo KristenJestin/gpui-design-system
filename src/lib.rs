@@ -81,7 +81,7 @@ pub use skeleton::{Awaiting, Skeleton, awaiting};
 pub use subpage::Subpage;
 pub use switch::Switch;
 pub use tabs::Tabs;
-pub use theme::{Palette, palette};
+pub use theme::{Palette, Theme, palette};
 pub use toast::{Toast, ToastKind, ToastStack, toast};
 pub use typography::Type;
 

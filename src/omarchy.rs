@@ -7,15 +7,15 @@
 //! every ink is then checked for contrast and moved until it reads. A theme missing a required
 //! key, or unreadable, leaves the base theme in place, with the reason logged.
 //!
-//! The user chooses ([`appear`]): Omarchy, or the application's own palette (see
+//! The user chooses ([`appear`]): Omarchy, or one of the application's own themes (see
 //! [`Identity`](crate::Identity)), light or dark, even on an Omarchy desktop. Omarchy chosen and no
-//! theme that can be used, the application's own in its shade.
+//! theme that can be used, the application's first theme in its shade.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use gpui_kit::{App, Global, Hsla};
+use gpui_kit::{App, Global, Hsla, SharedString};
 
 use crate::color::{hex, mix, over, parse_hex};
 use crate::theme::{self, Palette, Shade};
@@ -238,27 +238,29 @@ fn apply(choice: Choice, cx: &mut App) {
 /// Cross-fades to the palette of what is shown.
 fn show(cx: &mut App) {
     let shown = shown(cx);
-    let palette = match (shown.source, &cx.default_global::<Desktop>().read) {
+    let palette = match (&shown.source, &cx.default_global::<Desktop>().read) {
         (Source::Omarchy, Choice::Omarchy(palette)) => **palette,
-        _ => (crate::identity::identity(cx).palette)(shown.shade),
+        (Source::Theme(id), _) => (crate::identity::identity(cx).theme(id).palette)(shown.shade),
+        // Not shown: Omarchy is shown only when its theme can be used.
+        (Source::Omarchy, _) => Palette::base(),
     };
     theme::set_palette(palette, cx);
 }
 
 /// Where the window's colours come from, as the user chose it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum Source {
     /// The desktop's current Omarchy theme, followed live.
     #[default]
     Omarchy,
-    /// The application's own palette, in the shade chosen.
-    Own,
+    /// One of the application's own themes, by its id, in the shade chosen.
+    Theme(SharedString),
 }
 
-/// The user's choice of the window's colours: Omarchy, or the application's own, light or dark.
-/// The shade is kept with Omarchy too: it is the application's own when no Omarchy theme can be
-/// used.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// The user's choice of the window's colours: Omarchy, or one of the application's own themes,
+/// light or dark. The shade is kept with Omarchy too: it is the application's own when no Omarchy
+/// theme can be used.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Appearance {
     pub source: Source,
     pub shade: Shade,
@@ -274,18 +276,21 @@ pub fn appear(appearance: Appearance, cx: &mut App) {
     show(cx);
 }
 
-/// The appearance the window shows: the one chosen, or the application's own in its shade when
-/// Omarchy is chosen and cannot be used.
+/// The appearance the window shows: the one chosen, or the application's first theme in the shade
+/// chosen when Omarchy is chosen and cannot be used, or when the theme chosen is not one of the
+/// application's.
 pub fn shown(cx: &App) -> Appearance {
     let desktop = cx.try_global::<Desktop>();
-    let wanted = desktop.map(|d| d.wanted).unwrap_or_default();
+    let wanted = desktop.map(|d| d.wanted.clone()).unwrap_or_default();
     let usable = desktop.is_some_and(|d| matches!(d.read, Choice::Omarchy(_)));
-    match wanted.source {
-        Source::Omarchy if !usable => Appearance {
-            source: Source::Own,
-            ..wanted
-        },
-        _ => wanted,
+    let source = match wanted.source {
+        Source::Omarchy if usable => Source::Omarchy,
+        Source::Omarchy => Source::Theme(crate::identity::identity(cx).themes[0].id.clone()),
+        Source::Theme(id) => Source::Theme(crate::identity::identity(cx).theme(&id).id.clone()),
+    };
+    Appearance {
+        source,
+        shade: wanted.shade,
     }
 }
 

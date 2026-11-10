@@ -17,7 +17,7 @@ use gpui_kit::{
 };
 
 use crate::reveal::presence_of;
-use crate::theme::{Theme, palette};
+use crate::theme::{Colours, palette};
 
 /// The style of a text field in the palette of now: its ink and placeholder, its selection and
 /// its caret, the accent as the focus ring is.
@@ -48,7 +48,7 @@ impl<M: InputModeKind> StyledField for InputBaseState<M> {
 /// of the window is made through this, never with an `InputEditorStyle` of its own.
 pub fn follow_theme<T: StyledField + 'static>(field: &mut T, cx: &mut Context<T>) {
     field.set_field_style(field_style(cx));
-    cx.observe_global::<Theme>(|field, cx| field.set_field_style(field_style(cx)))
+    cx.observe_global::<Colours>(|field, cx| field.set_field_style(field_style(cx)))
         .detach();
 }
 

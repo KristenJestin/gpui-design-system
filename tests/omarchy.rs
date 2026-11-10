@@ -10,7 +10,7 @@ use gpui_design_system::Palette;
 use gpui_design_system::color::{TEXT_CONTRAST, contrast, hex};
 use gpui_design_system::omarchy::{self, Appearance, Source};
 use gpui_design_system::theme::{Shade, palette, target_palette};
-use gpui_kit::TestAppContext;
+use gpui_kit::{SharedString, TestAppContext};
 
 /// A theme of invented colours, every key given.
 const THEME: &str = r##"
@@ -154,7 +154,7 @@ fn without_omarchy_the_base_theme_is_used(cx: &mut TestAppContext) {
 }
 
 const OWN_LIGHT: Appearance = Appearance {
-    source: Source::Own,
+    source: Source::Theme(SharedString::new_static("own")),
     shade: Shade::Light,
 };
 
@@ -186,7 +186,7 @@ fn choosing_the_own_palette_on_omarchy_uses_it_and_stops_following_the_theme(
 
     appear(
         Appearance {
-            source: Source::Own,
+            source: Source::Theme(SharedString::new_static("own")),
             shade: Shade::Dark,
         },
         cx,
@@ -235,7 +235,7 @@ fn off_omarchy_the_omarchy_choice_is_refused_and_the_own_palette_is_shown(cx: &m
     assert_eq!(
         cx.update(|cx| omarchy::shown(cx)),
         Appearance {
-            source: Source::Own,
+            source: Source::Theme(SharedString::new_static("own")),
             shade: Shade::Dark,
         }
     );
@@ -271,13 +271,14 @@ fn orange(shade: Shade) -> Palette {
 #[gpui_kit::test]
 fn the_palette_an_application_gives_is_the_one_shown_off_omarchy(cx: &mut TestAppContext) {
     let desktop = Desktop::new(false);
-    let identity = gpui_design_system::Identity::new("Notes").palette(orange);
+    let identity = gpui_design_system::Identity::new("Notes")
+        .themes([gpui_design_system::Theme::new("own", "Notes", orange)]);
     cx.update(|cx| gpui_design_system::init_with(identity, desktop.env(), cx));
     cx.run_until_parked();
     assert_eq!(cx.update(|cx| target_palette(cx)), orange(Shade::Dark));
     appear(
         Appearance {
-            source: Source::Own,
+            source: Source::Theme(SharedString::new_static("own")),
             shade: Shade::Light,
         },
         cx,

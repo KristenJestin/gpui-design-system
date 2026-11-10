@@ -42,9 +42,12 @@ impl Desktop {
 }
 
 pub fn init(cx: &mut TestAppContext, env: Environment) {
-    cx.update(|cx| {
-        gpui_design_system::init_with(gpui_design_system::Identity::new("Kit"), env, cx)
-    });
+    init_as(gpui_design_system::Identity::new("Kit"), cx, env);
+}
+
+/// [`init`] for the application `identity`.
+pub fn init_as(identity: gpui_design_system::Identity, cx: &mut TestAppContext, env: Environment) {
+    cx.update(|cx| gpui_design_system::init_with(identity, env, cx));
     cx.run_until_parked();
 }
 
