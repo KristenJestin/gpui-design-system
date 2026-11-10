@@ -1,0 +1,42 @@
+# The shape of a pull request, checked by the machine so nobody has to ask for it: the title is an
+# Angular subject (it becomes the commit squashed into main), and the description ends with the
+# issue it closes. This job only reads: it writes nothing on the pull request.
+name: pull-request
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, ready_for_review, synchronize]
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  shape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: The title is an Angular subject
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$TITLE" > "$RUNNER_TEMP/title"
+          tools/commit-message.sh "$RUNNER_TEMP/title"
+      - name: The description ends with the issue it closes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          last=$(printf '%s\n' "$BODY" | tr -d '\r' | grep -v '^[[:space:]]*$' | tail -n 1 || true)
+          if ! [[ $last =~ ^Closes\ \#([0-9]+)$ ]]; then
+            echo "::error::The description must end with \`Closes #<n>\` on its own line."
+            exit 1
+          fi
+          number=${BASH_REMATCH[1]}
+          # `.pull_request` is null for an issue.
+          read -r state pull < <(gh api "repos/$GH_REPO/issues/$number" --jq '[.state, (.pull_request != null)] | join(" ")')
+          if [ "$pull" = true ]; then echo "::error::#$number is a pull request, not an issue."; exit 1; fi
+          if [ "$state" != open ]; then echo "::error::#$number is closed; a pull request closes an open issue."; exit 1; fi

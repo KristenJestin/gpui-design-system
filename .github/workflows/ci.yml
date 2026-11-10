@@ -1,24 +1,45 @@
+# The checks of every change, and the pre-releases (docs/releases.md): `main` publishes a beta per
+# commit, a feature branch an alpha per push. A stable release is the `Release` workflow's.
 name: ci
 
 on:
   pull_request:
   push:
-    branches: [main]
-    tags: ["v*"]
-  workflow_dispatch:
+    branches: [main, "feat/**", "fix/**"]
 
+# A push makes the runs of the same ref's older pushes useless: they are cancelled, so that the
+# queue holds only what is current. Not on main, whose runs publish and always finish.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  commit-messages:
+    # Judged on the pull request: a branch's pushes are not, and main holds squashes, whose
+    # subject is the title the pull request was judged on, with ` (#n)` added.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the Angular commit convention
+        run: tools/commit-message.sh --range "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"
+
   verify:
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
     env:
       # An incremental cache is only written here, never reused by the next run.
       CARGO_INCREMENTAL: 0
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - run: rustup component add rustfmt clippy
       - uses: Swatinem/rust-cache@v2
       # The kit links against fontconfig and freetype; GPUI loads Wayland and Vulkan at run time
@@ -33,3 +54,101 @@ jobs:
       # Without the omarchy feature, the kit names no desktop: the app-word scan checks that build.
       - run: cargo clippy --all-targets --locked --no-default-features -- -D warnings
       - run: cargo test --locked --no-default-features
+
+  # `plan` runs the branch's scripts with a token that can only read: it computes the version and
+  # the notes of what is pushed. `publish`, once `verify` passed on that commit, runs none of it
+  # and alone may write the releases and the tags.
+  plan:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      skip: ${{ steps.version.outputs.skip }}
+      channel: ${{ steps.version.outputs.channel }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The channel and the version
+        id: version
+        run: |
+          case "$GITHUB_REF_NAME" in
+            main) channel=beta ;;
+            *) channel=alpha ;;
+          esac
+          status=0
+          version=$(tools/version.sh "$channel" --branch "$GITHUB_REF_NAME" --at "$GITHUB_SHA") || status=$?
+          # 3: nothing was committed since the last stable release, which is then this very commit.
+          if [ "$status" -eq 3 ]; then
+            echo "::notice::Nothing since the last stable release: nothing is published."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [ "$status" -eq 0 ] || exit "$status"
+          # Every push is its own release, an alpha's too: nothing is ever replaced.
+          mkdir "$RUNNER_TEMP/release"
+          {
+            echo "$version, $channel, built from ${GITHUB_SHA:0:12}."
+            echo
+            echo "Depend on it with \`tag = \"v$version\"\` (see docs/releases.md)."
+            echo
+            tools/changelog.sh --at "$GITHUB_SHA"
+          } > "$RUNNER_TEMP/release/notes.md"
+          {
+            echo "channel=$channel"
+            echo "version=$version"
+            echo "tag=v$version"
+          } >> "$GITHUB_OUTPUT"
+      - if: steps.version.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+          retention-days: 1
+
+  publish:
+    needs: [verify, plan]
+    # Never on a commit `verify` did not pass on; a failed or skipped `plan` publishes nothing.
+    if: >-
+      !cancelled() && github.event_name == 'push'
+      && needs.verify.result == 'success'
+      && needs.plan.result == 'success' && needs.plan.outputs.skip != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Shared with alpha-cleanup.yml: a branch's alpha is never deleted while it is published.
+    concurrency:
+      group: publish-${{ github.ref_name }}
+    # This job holds the write token: it runs no git and never works inside the artifact, whose
+    # notes come from the branch's code. Only `gh` runs, naming the file it reads.
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          # Read right before publishing: a push over this commit publishes itself, after it, and
+          # a deleted branch publishes nothing.
+          if tip=$(gh api "repos/$GH_REPO/git/ref/heads/$GITHUB_REF_NAME" --jq .object.sha 2> "$RUNNER_TEMP/tip.err"); then
+            if [ "$tip" != "$GITHUB_SHA" ]; then echo "::notice::$GITHUB_REF_NAME moved on to $tip: nothing is published."; exit 0; fi
+          elif grep -q 'HTTP 404' "$RUNNER_TEMP/tip.err"; then
+            echo "::notice::$GITHUB_REF_NAME was deleted: nothing is published."; exit 0
+          else
+            cat "$RUNNER_TEMP/tip.err" >&2; exit 1
+          fi
+          # Nothing is replaced, ever (releases are immutable): a version already published stays
+          # as it is; a draft left by a failed upload is made again.
+          if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2> /dev/null); then
+            if [ "$draft" = true ]; then gh release delete "$TAG" --yes; else echo "::notice::$TAG is already published."; exit 0; fi
+          fi
+          gh release create "$TAG" --target "$GITHUB_SHA" --title "$VERSION" --notes-file release/notes.md --prerelease --latest=false
