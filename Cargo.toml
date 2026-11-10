@@ -1,0 +1,27 @@
+[package]
+name = "gpui-design-system"
+description = "The components, tokens and motion shared by GPUI applications"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+repository = "https://github.com/KristenJestin/gpui-design-system"
+
+[features]
+default = ["omarchy"]
+# The current Omarchy theme as a desktop source (`omarchy::Omarchy`). Without it, nothing in the kit
+# reads Omarchy's files or names it.
+omarchy = ["dep:toml"]
+
+[dependencies]
+gpui-kit = { version = "=0.8.0", default-features = false, features = ["assets", "gpui-fast"] }
+toml = { version = "1.1.8", optional = true }
+unicode-normalization = "0.1.26"
+
+[dev-dependencies]
+gpui-kit = { version = "=0.8.0", default-features = false, features = ["assets", "gpui-fast", "test-support"] }
+tempfile = "3.27.0"
+
+# The GPUI dependencies are most of every test binary's debug info; line tables keep a panic's
+# file and line, and the kit keeps the full debug info.
+[profile.dev.package."*"]
+debug = "line-tables-only"
