@@ -3,6 +3,11 @@
 //! list leaves to the left; going back is the reverse. Above the page a path line,
 //! `Features / Review`, whose first word goes back, as Escape does.
 //!
+//! An entry can be faded (`faded`): a feature that is off where it is turned on is still in its
+//! place in the list, at reduced emphasis, its line replaced by a link the application handles
+//! (`on_link`) and that opens nothing of the list. The fade and the change of line move over
+//! `PANEL`.
+//!
 //! The component holds no choice: the screen says which entry is open (`open`) and is told when
 //! the user opens one or goes back (`on_open`). A screen that keeps its choice keeps the page
 //! open while another tab is shown, and the page is simply there when the tab comes back.
@@ -12,23 +17,29 @@ use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyView, App, ElementId, InteractiveElement, IntoElement, KeyDownEvent, ParentElement,
-    RenderOnce, SharedString, StatefulInteractiveElement, Styled, TestSupportExt, Window, div, px,
+    AnyView, App, ClickEvent, ElementId, InteractiveElement, IntoElement, KeyDownEvent,
+    ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled, TestSupportExt,
+    Window, div, px,
 };
 
 use crate::color::mix;
 use crate::icons::{Icon, icon};
-use crate::interact::hoverable;
+use crate::interact::{fade, hoverable};
 use crate::motion::{Motion, PANEL};
 use crate::rows::{ListCard, ListRow};
-use crate::theme::palette;
+use crate::theme::{Palette, palette};
 use crate::typography::Type;
 
 type OnOpen = Rc<dyn Fn(Option<SharedString>, &mut Window, &mut App) + 'static>;
+type OnLink = Rc<dyn Fn(SharedString, &mut Window, &mut App) + 'static>;
+type OnClick = Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>;
 
 /// How far a page travels while it comes in and the list goes out, in pixels: they move a little
 /// and fade, as the detail drawer does, rather than cross the whole width.
 const SLIDE: f32 = 32.;
+
+/// How much of its opacity a faded row keeps.
+const FADED: f32 = 0.6;
 
 struct Entry {
     key: SharedString,
@@ -55,6 +66,9 @@ pub struct Subpage {
     entries: Vec<Entry>,
     open: Option<SharedString>,
     on_open: Option<OnOpen>,
+    /// The entries that are faded, each with the words of its link.
+    faded: Vec<(SharedString, SharedString)>,
+    on_link: Option<OnLink>,
     page: Option<AnyView>,
 }
 
@@ -69,6 +83,8 @@ impl Subpage {
             entries: Vec::new(),
             open: None,
             on_open: None,
+            faded: Vec::new(),
+            on_link: None,
             page: None,
         }
     }
@@ -90,6 +106,20 @@ impl Subpage {
             tag: tag.into(),
             line: line.into(),
         });
+        self
+    }
+
+    /// Fades the entry `key` for as long as this is said: it keeps its place, shows `link` (`Off in
+    /// Settings`) in place of its line and its tag, and opens no page. An entry that stops being
+    /// faded gets its line and its tag back. The link is `<id>-<key>-off`.
+    pub fn faded(mut self, key: impl Into<SharedString>, link: impl Into<SharedString>) -> Self {
+        self.faded.push((key.into(), link.into()));
+        self
+    }
+
+    /// Called with the key of the faded entry whose link was clicked.
+    pub fn on_link(mut self, f: impl Fn(SharedString, &mut Window, &mut App) + 'static) -> Self {
+        self.on_link = Some(Rc::new(f));
         self
     }
 
@@ -125,10 +155,15 @@ impl RenderOnce for Subpage {
         };
         let part = |tail: &str| ElementId::Name(format!("{id_text}-{tail}").into());
         let key = ElementId::NamedChild(Arc::new(self.id.clone()), "slide".into());
-        let open = self.open.is_some();
+        // A faded entry opens nothing.
+        let opened = self
+            .open
+            .clone()
+            .filter(|key| !self.faded.iter().any(|(faded, _)| faded == key));
+        let open = opened.is_some();
         let state = window.use_keyed_state(key, cx, |_, _| Slide {
             motion: Motion::settled(if open { 1.0 } else { 0.0 }),
-            last: self.open.clone(),
+            last: opened.clone(),
             page: None,
             focused: false,
         });
@@ -145,8 +180,8 @@ impl RenderOnce for Subpage {
         let reduce = cx.reduce_motion();
         let target = if open { 1.0 } else { 0.0 };
         let (motion, last, focused, page) = state.update(cx, |slide, _| {
-            if self.open.is_some() {
-                slide.last = self.open.clone();
+            if opened.is_some() {
+                slide.last = opened.clone();
                 slide.page = self.page.clone();
             }
             if slide.motion.target() != target {
@@ -186,6 +221,7 @@ impl RenderOnce for Subpage {
         let at = motion.value(now);
 
         let on_open = self.on_open;
+        let on_link = self.on_link;
         let list_shown = at < 1.0;
         let page_shown = at > 0.0 || open;
         let title_of = |key: &SharedString| {
@@ -197,13 +233,63 @@ impl RenderOnce for Subpage {
 
         let list = list_shown.then(|| {
             let rows = self.entries.iter().map(|entry| {
-                let row = ListRow::new(part(&entry.key), entry.title.clone())
-                    .leading(icon(entry.icon).text_color(p.mute))
-                    .tag(entry.tag.clone())
-                    .line(entry.line.clone())
+                let id = part(&entry.key);
+                let link = self
+                    .faded
+                    .iter()
+                    .find(|(key, _)| key == &entry.key)
+                    .map(|(_, link)| link.clone());
+                let off = fade(
+                    part(&format!("{}-faded", entry.key)),
+                    link.is_some(),
+                    PANEL,
+                    window,
+                    cx,
+                );
+                let kept = kept_link(
+                    part(&format!("{}-kept", entry.key)),
+                    link.clone(),
+                    window,
+                    cx,
+                );
+                let mut row = ListRow::new(id.clone(), entry.title.clone())
+                    .leading(icon(entry.icon).text_color(mix(p.mute, p.faint, off)))
                     // The row that was left keeps its mark while the list comes back, then lets go.
                     .marked(at > 0.0 && last.as_ref() == Some(&entry.key));
-                match on_open.clone() {
+                match kept {
+                    None => {
+                        row = row.tag(entry.tag.clone()).line(entry.line.clone());
+                    }
+                    Some(words) => {
+                        // The link answers only while the entry is faded, not while it fades out.
+                        let on_click = link.and(on_link.clone()).map(|on_link| {
+                            let key = entry.key.clone();
+                            Box::new(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
+                                on_link(key.clone(), window, cx)
+                            }) as OnClick
+                        });
+                        row = row
+                            .tags_shown(1.0 - off)
+                            .below(faded_line(
+                                (part(&format!("{}-line", entry.key)), entry.line.clone()),
+                                (part(&format!("{}-off", entry.key)), words),
+                                on_click,
+                                off,
+                                p,
+                            ))
+                            .decorate(move |d| {
+                                d.opacity(1.0 - (1.0 - FADED) * off)
+                                    .text_color(mix(p.text, p.faint, off))
+                            });
+                        if off < 1.0 {
+                            row = row.tag(entry.tag.clone());
+                        }
+                    }
+                }
+                match on_open
+                    .clone()
+                    .filter(|_| !self.faded.iter().any(|(key, _)| key == &entry.key))
+                {
                     Some(on_open) => {
                         let key = entry.key.clone();
                         row.on_click(move |_, window, cx| on_open(Some(key.clone()), window, cx))
@@ -293,4 +379,73 @@ impl RenderOnce for Subpage {
             .children(list)
             .test_support()
     }
+}
+
+/// The words a faded entry last said, kept so that its link can be drawn while it fades out: the
+/// ones it says now, else the ones it said before (`None` for an entry that never was faded).
+fn kept_link(
+    id: ElementId,
+    now: Option<SharedString>,
+    window: &mut Window,
+    cx: &mut App,
+) -> Option<SharedString> {
+    let state = window.use_keyed_state(id, cx, |_, _| None::<SharedString>);
+    state.update(cx, |kept, _| {
+        if now.is_some() {
+            kept.clone_from(&now);
+        }
+        kept.clone()
+    })
+}
+
+/// The line of an entry that is or was faded, `off` of the way to its link (0 the line, 1 the
+/// link): the one that is not there is drawn over the other while they cross, and alone once it is
+/// all the way.
+fn faded_line(
+    (line_id, line): (ElementId, SharedString),
+    (link_id, words): (ElementId, SharedString),
+    on_click: Option<OnClick>,
+    off: f32,
+    p: Palette,
+) -> impl IntoElement {
+    let clickable = on_click.is_some();
+    let link = div()
+        .id(link_id)
+        .aria_label(words.clone())
+        // How far the entry is faded, for a test and for assistive technology.
+        .aria_value(format!("{off}"))
+        .when(clickable, |d| d.cursor_pointer())
+        .child(words);
+    let link = hoverable(
+        match on_click {
+            Some(on_click) => link.on_click(on_click),
+            None => link,
+        },
+        move |d, hover| d.text_color(mix(p.faint, p.text, hover)),
+    );
+    div()
+        .relative()
+        .text_size(px(12.5))
+        .when(off < 1.0, |d| {
+            d.child(
+                div()
+                    .id(line_id)
+                    .aria_label(line.clone())
+                    .text_color(p.mute)
+                    .opacity(1.0 - off)
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(line)
+                    .test_support(),
+            )
+        })
+        .when(off > 0.0, |d| {
+            d.child(
+                div()
+                    .when(off < 1.0, |d| d.absolute().top_0().left_0())
+                    .opacity(off)
+                    .child(link),
+            )
+        })
 }

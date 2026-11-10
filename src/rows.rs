@@ -487,6 +487,7 @@ pub struct ListRow {
     corners: (bool, bool),
     selected: bool,
     marked: bool,
+    tags_shown: f32,
     pieces: Option<Vec<(String, bool)>>,
     on_enter: Option<OnEnter>,
     on_click: Option<OnClick>,
@@ -513,6 +514,7 @@ impl ListRow {
             corners: (false, false),
             selected: false,
             marked: false,
+            tags_shown: 1.0,
             pieces: None,
             on_enter: None,
             on_click: None,
@@ -556,6 +558,13 @@ impl ListRow {
     /// menu is open: it fades in and out with the row's hover, in `<id>-actions`.
     pub fn more(mut self, menu: Entity<Menu>) -> Self {
         self.more = Some(menu);
+        self
+    }
+
+    /// How much of their opacity the tags keep (1 all of it): a row that is fading takes its tag
+    /// with it.
+    pub(crate) fn tags_shown(mut self, shown: f32) -> Self {
+        self.tags_shown = shown;
         self
     }
 
@@ -688,6 +697,7 @@ impl RenderOnce for ListRow {
         // A tag is a word or a path someone wrote: it is cut with an ellipsis at 160 px (its
         // whole text in a tooltip) so that the title keeps its room, rather than push the row
         // out of its place. A tag whose text changes (On, Off) fades back in rather than jump.
+        let tags_shown = self.tags_shown;
         let tags: Vec<AnyElement> = self
             .tags
             .into_iter()
@@ -697,7 +707,7 @@ impl RenderOnce for ListRow {
                 let fading = changed(&id, &tag, window, cx);
                 let element = div()
                     .id(id)
-                    .opacity(fading)
+                    .opacity(fading * tags_shown)
                     .aria_label(tag.clone())
                     .min_w_0()
                     .max_w(px(160.))
