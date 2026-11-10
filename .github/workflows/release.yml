@@ -1,0 +1,119 @@
+# A stable release (docs/releases.md): a commit of main is tagged `vX.Y.Z`, the version its beta
+# had without the pre-release, and published as a GitHub release with its changelog. It holds no
+# binary: an application depends on the tag.
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: The commit of main to release, its full SHA, or main for its head
+        required: true
+        default: main
+
+permissions: {}
+
+# Two releases at once would race for the same version.
+concurrency:
+  group: release
+
+jobs:
+  # Runs the repository's scripts, with a token that can only read, and decides nothing about
+  # writing: it checks the commit, computes the version and writes the notes.
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # To ask whether the commit's checks passed.
+      actions: read
+    outputs:
+      commit: ${{ steps.plan.outputs.commit }}
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check the commit, then compute the version
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          # The workflow of main is the one that releases: another branch's copy may say anything.
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::The release is started from main, not $GITHUB_REF: nothing was released."
+            exit 1
+          fi
+          # A full SHA or main, nothing else reaches a command.
+          if [ "$COMMIT" != main ] && ! [[ $COMMIT =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The commit to release is a full SHA of main, or main for its head: nothing was released."
+            exit 1
+          fi
+          commit=$COMMIT
+          if [ "$commit" = main ]; then commit=$(git rev-parse origin/main); fi
+          if ! git merge-base --is-ancestor "$commit" origin/main; then
+            echo "::error::$commit is not a commit of main: nothing was released."
+            exit 1
+          fi
+          # Only a commit whose checks passed: its push run on main succeeded, which holds `verify`.
+          passed=$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?head_sha=$commit&event=push&branch=main&status=success" --jq .total_count)
+          if [ "$passed" -eq 0 ]; then
+            echo "::error::No successful run of ci on $commit: nothing was released."
+            exit 1
+          fi
+          status=0
+          version=$(tools/version.sh stable --at "$commit") || status=$?
+          if [ "$status" -eq 3 ]; then
+            echo "::error::Nothing to release at $commit since the last stable release."
+          fi
+          [ "$status" -eq 0 ] || exit "$status"
+          mkdir "$RUNNER_TEMP/release"
+          {
+            echo "$version, stable, from ${commit:0:12}."
+            echo
+            echo "Depend on it with \`tag = \"v$version\"\` (see docs/releases.md)."
+            echo
+            tools/changelog.sh --at "$commit"
+          } > "$RUNNER_TEMP/release/notes.md"
+          {
+            echo "commit=$commit"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: ${{ runner.temp }}/release
+          retention-days: 1
+
+  # This job holds the token that writes tags: no checkout, no git, no code of any branch. Only
+  # `gh`, through GitHub's API, naming the notes file it reads.
+  publish:
+    needs: plan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: release
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT: ${{ needs.plan.outputs.commit }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          tag="v$VERSION"
+          # Nothing is replaced, ever (releases are immutable): a version already published stays
+          # as it is and the run fails; a draft left by a failed upload is made again.
+          if draft=$(gh release view "$tag" --json isDraft --jq .isDraft 2> /dev/null); then
+            if [ "$draft" != true ]; then
+              echo "::error::$tag is already published: nothing was released."
+              exit 1
+            fi
+            gh release delete "$tag" --yes
+          fi
+          gh release create "$tag" --target "$COMMIT" --title "$VERSION" --notes-file release/notes.md --latest
