@@ -30,7 +30,7 @@ pub struct SetHere {
 
 impl SetHere {
     /// `control` (a field, a select, a model choice) with the mark under it. `set_label` is what
-    /// the mark says (`set here`) and `reset_label` what the way back says (`Use Settings'
+    /// the mark says (`set here`) and `reset_label` what the way back says (`Use the inherited
     /// value`). The mark is `<id>-set`, the way back `<id>-reset`.
     pub fn new(
         id: impl Into<ElementId>,

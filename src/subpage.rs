@@ -1,10 +1,10 @@
 //! `Subpage`: a list of rows that opens the page of one of them in place of itself, inside the
-//! tab that holds it (the Features tabs). The page comes in from the right, fading in, while the
-//! list leaves to the left; going back is the reverse. Above the page a path line,
-//! `Features / Review`, whose first word goes back, as Escape does.
+//! tab that holds it. The page comes in from the right, fading in, while the list leaves to the
+//! left; going back is the reverse. Above the page a path line, `Parent / Child`, whose first word
+//! goes back, as Escape does.
 //!
-//! An entry can be faded (`faded`): a feature that is off where it is turned on is still in its
-//! place in the list, at reduced emphasis, its line replaced by a link the application handles
+//! An entry can be faded (`faded`): an entry that cannot be opened for now is still in its place
+//! in the list, at reduced emphasis, its line replaced by a link the application handles
 //! (`on_link`) and that opens nothing of the list. The fade and the change of line move over
 //! `PANEL`.
 //!
@@ -73,7 +73,7 @@ pub struct Subpage {
 }
 
 impl Subpage {
-    /// `label` names the list and starts the path line (`Features`). The list is `<id>-list`, an
+    /// `label` names the list and starts the path line (`Sections`). The list is `<id>-list`, an
     /// entry `<id>-<key>` (its tag `<id>-<key>-tag-0`), the path line `<id>-path` and the word
     /// that goes back `<id>-back`, the page's frame `<id>-page`.
     pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Self {
@@ -109,8 +109,8 @@ impl Subpage {
         self
     }
 
-    /// Fades the entry `key` for as long as this is said: it keeps its place, shows `link` (`Off in
-    /// Settings`) in place of its line and its tag, and opens no page. An entry that stops being
+    /// Fades the entry `key` for as long as this is said: it keeps its place, shows `link` (`See
+    /// elsewhere`) in place of its line and its tag, and opens no page. An entry that stops being
     /// faded gets its line and its tag back. The link is `<id>-<key>-off`.
     pub fn faded(mut self, key: impl Into<SharedString>, link: impl Into<SharedString>) -> Self {
         self.faded.push((key.into(), link.into()));
