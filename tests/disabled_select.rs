@@ -87,15 +87,8 @@ fn turn(view: &Entity<Host>, off: bool, cx: &mut VisualTestContext) {
 }
 
 /// How far the select `id` is enabled (0 to 1).
-fn enabled(id: &str, cx: &mut VisualTestContext) -> f32 {
-    let id = format!("{id}-root");
-    cx.update(|window, _| {
-        window
-            .find(id)
-            .value()
-            .and_then(|v| v.parse().ok())
-            .expect("a select says how far it is enabled")
-    })
+fn enabled(id: &str, _: &mut VisualTestContext) -> f32 {
+    gpui_design_system::seen::seen(format!("{id}-root")).expect("a select was drawn")
 }
 
 fn listed(id: &str, cx: &mut VisualTestContext) -> bool {
@@ -182,4 +175,29 @@ fn the_set_here_mark_beside_a_disabled_select_stays_usable(cx: &mut TestAppConte
     let (view, cx) = host(true, cx);
     cx.update(|window, cx| window.click("mark-reset", cx));
     assert_eq!(view.read_with(cx, |this, _| this.reset.get()), 1);
+}
+
+#[gpui_kit::test]
+fn a_disabled_select_takes_no_focus(cx: &mut TestAppContext) {
+    let (view, cx) = host(true, cx);
+    cx.update(|window, cx| window.click("tracker", cx));
+    cx.update(|window, cx| assert!(window.focused(cx).is_none(), "a click does not focus it"));
+
+    turn(&view, false, cx);
+    advance(cx, HOVER * 2);
+    cx.update(|window, cx| window.click("tracker", cx));
+    cx.update(|window, cx| {
+        assert!(
+            window.focused(cx).is_some(),
+            "enabled, it opens and has focus"
+        )
+    });
+
+    turn(&view, true, cx);
+    cx.update(|window, cx| {
+        assert!(
+            window.focused(cx).is_none(),
+            "turning disabled takes its focus away"
+        )
+    });
 }

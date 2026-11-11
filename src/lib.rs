@@ -34,6 +34,7 @@ pub mod path;
 pub mod radio;
 pub mod reveal;
 pub mod rows;
+pub mod seen;
 pub mod segmented;
 pub mod select;
 pub mod set_here;

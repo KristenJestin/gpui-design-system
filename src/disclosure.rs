@@ -23,6 +23,7 @@ use crate::interact::{fade, hoverable};
 use crate::motion::HOVER;
 use crate::reveal::presence;
 use crate::rows::turning;
+use crate::seen;
 use crate::space;
 use crate::theme::palette;
 
@@ -85,10 +86,10 @@ impl RenderOnce for Disclosure {
         let turned = turning(chevron_id.clone(), open, window, cx);
         let summary_id = part(&self.id, "summary");
         let shown = fade(summary_id.clone(), !open, HOVER, window, cx);
+        seen::note(&chevron_id, turned);
+        seen::note(&summary_id, shown);
         let chevron = div()
             .id(chevron_id)
-            // How far it is folded, for a test.
-            .aria_value(format!("{turned}"))
             .flex_none()
             .child(
                 icon(Icon::Chevron)
@@ -112,7 +113,6 @@ impl RenderOnce for Disclosure {
                 div()
                     .id(summary_id)
                     .aria_label(summary.clone())
-                    .aria_value(format!("{shown}"))
                     .min_w_0()
                     .overflow_hidden()
                     .whitespace_nowrap()
@@ -126,9 +126,10 @@ impl RenderOnce for Disclosure {
         if let Some(on_toggle) = self.on_toggle {
             line = line.on_click(move |_, window, cx| on_toggle(!open, window, cx));
         }
+        let line_id = self.id.clone();
         let line = hoverable(line, move |d, t| {
+            seen::note(&line_id, t);
             d.text_color(mix(p.mute, p.text, t))
-                .aria_value(format!("{t}"))
         });
         div()
             .id(part(&self.id, "root"))

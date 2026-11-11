@@ -58,14 +58,9 @@ fn host(
     (view, cx)
 }
 
-/// The value an element says (how far something is), `None` while it is not drawn.
-fn value(id: &str, cx: &mut VisualTestContext) -> Option<f32> {
-    let id = id.to_owned();
-    cx.update(|window, _| {
-        window
-            .try_find(id)
-            .and_then(|found| found.value().and_then(|v| v.parse().ok()))
-    })
+/// How far something of the disclosure was drawn (0 to 1), `None` while it never was.
+fn value(id: &str, _: &mut VisualTestContext) -> Option<f32> {
+    gpui_design_system::seen::seen(id.to_owned())
 }
 
 /// How far the body pushes what follows it down: its height and the gap above it.
