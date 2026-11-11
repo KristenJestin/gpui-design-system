@@ -35,6 +35,7 @@ pub mod reveal;
 pub mod rows;
 pub mod segmented;
 pub mod select;
+pub mod set_here;
 pub mod skeleton;
 pub mod space;
 pub mod subpage;
@@ -81,6 +82,7 @@ pub use rows::{
 };
 pub use segmented::Segmented;
 pub use select::{Select, SelectOption};
+pub use set_here::SetHere;
 pub use skeleton::{Awaiting, Skeleton, awaiting};
 pub use subpage::Subpage;
 pub use switch::Switch;
