@@ -94,6 +94,7 @@ pub struct ModelChoice {
     models: Vec<ModelEntry>,
     picked: bool,
     compact: bool,
+    name: Option<SharedString>,
     hint: Option<SharedString>,
     cost: Option<SharedString>,
     disabled: bool,
@@ -118,6 +119,7 @@ impl ModelChoice {
             models: Vec::new(),
             picked: false,
             compact: false,
+            name: None,
             hint: None,
             cost: None,
             disabled: false,
@@ -182,6 +184,14 @@ impl ModelChoice {
     /// A line of a card: the label on the left, one line under it, the selects on the right.
     pub fn compact(mut self) -> Self {
         self.compact = true;
+        self
+    }
+
+    /// A compact choice on a line whose own words already name it (a switch's label): it draws
+    /// neither its label nor its hint, only its selects, and `name` is the accessible name of
+    /// `<id>`. Of no effect on a choice that is not compact.
+    pub fn unlabelled(mut self, name: impl Into<SharedString>) -> Self {
+        self.name = Some(name.into());
         self
     }
 
@@ -395,6 +405,19 @@ impl RenderOnce for ModelChoice {
                 .child(cost)
                 .test_support()
         });
+        if self.compact
+            && let Some(name) = self.name.clone()
+        {
+            return div()
+                .id(id)
+                .aria_label(name)
+                .flex()
+                .flex_col()
+                .child(div().flex().items_center().child(row))
+                .children(cost)
+                .test_support()
+                .into_any_element();
+        }
         if self.compact {
             let words = div()
                 .flex_1()

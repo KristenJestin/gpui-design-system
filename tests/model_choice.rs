@@ -215,3 +215,36 @@ fn the_picked_mark_fades_away_once_seen(cx: &mut TestAppContext) {
     assert!(!shown("judge-picked", cx));
     assert_eq!(pending_frames(cx), 0);
 }
+
+/// A compact choice on a line a switch already names: no words of its own, still named.
+struct Bare;
+
+impl Render for Bare {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().w(px(700.)).p(px(16.)).flex().child(
+            ModelChoice::new("judge", "Model", Chosen::First)
+                .inherited("Opus for Claude")
+                .models(models())
+                .hint("Which model")
+                .compact()
+                .unlabelled("Bugs model"),
+        )
+    }
+}
+
+#[gpui_kit::test]
+fn a_compact_model_choice_without_label_keeps_its_accessible_name(cx: &mut TestAppContext) {
+    init(cx);
+    let (_, cx) = cx.add_window_view(|_, _| Bare);
+    cx.update(|window, cx| window.render_frame(cx));
+    cx.update(|window, _| {
+        assert_eq!(window.find("judge").label(), Some("Bugs model"));
+        assert!(window.try_find("judge-label").is_none(), "no label drawn");
+        assert!(window.try_find("judge-hint").is_none(), "nor its hint");
+        // Its select is at the left edge of the line: no empty element grew before it.
+        assert_eq!(
+            window.find("judge-model").bounds().origin.x,
+            window.find("judge").bounds().origin.x
+        );
+    });
+}

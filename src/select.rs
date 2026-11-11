@@ -22,7 +22,7 @@ use gpui_kit::{
 use crate::color::mix;
 use crate::dropdown::{Align, Handler, Width, list_overlay};
 use crate::icons::{Icon, icon};
-use crate::interact::{hoverable, selectable};
+use crate::interact::{fade, hoverable, selectable};
 use crate::motion::{ENTER, HOVER, Motion};
 use crate::theme::palette;
 
@@ -118,7 +118,9 @@ impl Select {
         self
     }
 
-    /// Faded, and a click does nothing.
+    /// Faded, and a click does nothing: turning it on fades it over [`HOVER`] and a list that was
+    /// open closes, and it takes no focus. A test reads how far it is enabled with
+    /// [`seen`](crate::seen) under `<id>-root`.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
@@ -149,7 +151,16 @@ impl RenderOnce for Select {
         });
         let now = cx.background_executor().now();
         let reduce = cx.reduce_motion();
-        let (open, motion, width, focus) = state.update(cx, |s, _| {
+        // Enabled or not is a state: it fades over HOVER instead of switching.
+        let enabled = fade(part(&self.id, "enabled"), !self.disabled, HOVER, window, cx);
+        let (open, motion, width, focus) = state.update(cx, |s, cx| {
+            if self.disabled {
+                s.open = false;
+                // A disabled select takes no focus, and one that had it gives it up.
+                if s.focus.is_focused(window) {
+                    window.blur(cx);
+                }
+            }
             let (target, duration) = if s.open { (1.0, ENTER) } else { (0.0, HOVER) };
             if s.fade.target() != target {
                 s.fade.animate(target, duration, now, reduce);
@@ -212,8 +223,12 @@ impl RenderOnce for Select {
             (None, true) => field.min_w(px(220.)),
             (None, false) => field.w_full(),
         };
+        if enabled < 1.0 {
+            field = field.opacity(0.35 + 0.65 * enabled);
+        }
         if self.disabled {
-            field = field.opacity(0.35);
+            // GPUI has no disabled flag to set, so a description says it to assistive technology.
+            field = field.aria_description("Disabled");
         } else {
             let toggle = set_open.clone();
             field = field
@@ -221,13 +236,15 @@ impl RenderOnce for Select {
                 .on_click(move |_, window, cx| toggle(!open, window, cx));
         }
         let field = hoverable(field, move |d, hover| {
-            let on = if open { 1.0 } else { hover };
+            let on = if open { 1.0 } else { hover * enabled };
             d.border_color(mix(p.field_line, p.focus_line, on))
         });
         let close = set_open.clone();
+        let root_id = part(&self.id, "root");
+        crate::seen::note(&root_id, enabled);
         let root = div()
-            .id(part(&self.id, "root"))
-            .track_focus(&focus)
+            .id(root_id)
+            .when(!self.disabled, |d| d.track_focus(&focus))
             .on_key_down(move |event, window, cx| {
                 if open && event.keystroke.key == "escape" {
                     cx.stop_propagation();
@@ -244,7 +261,7 @@ impl RenderOnce for Select {
             })
             .child(field);
         if t == 0.0 && !open {
-            return root;
+            return root.test_support();
         }
         let on_choose = self.on_choose.clone();
         let mut groups = 0;
@@ -347,5 +364,6 @@ impl RenderOnce for Select {
             window,
             cx,
         ))
+        .test_support()
     }
 }
