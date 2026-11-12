@@ -297,6 +297,18 @@ mod tests {
     }
 
     #[test]
+    fn a_dim_magenta_is_moved_until_what_waits_reads_on_its_tint() {
+        let dim = hex(0x4a2a5a);
+        let p = palette_from_toml(
+            "background = \"#101010\"\nforeground = \"#d0d0d0\"\naccent = \"#88aaff\"\n\
+             color5 = \"#4a2a5a\"\n",
+        )
+        .unwrap();
+        assert_ne!(p.pend, dim, "the theme's own magenta is too dim to read");
+        assert!(contrast(p.pend, p.pend_bg) >= TEXT_CONTRAST);
+    }
+
+    #[test]
     fn a_bad_value_is_a_reason() {
         let err = palette_from_toml(
             "background = \"#101010\"\nforeground = \"nope\"\naccent = \"#88aaff\"\n",
