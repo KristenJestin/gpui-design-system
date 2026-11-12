@@ -419,3 +419,29 @@ fn the_recommended_entry_given_first_is_the_one_selected(cx: &mut TestAppContext
         Some(&(Chosen::Model("codex".into(), None), None))
     );
 }
+
+#[gpui_kit::test]
+fn a_recommended_entry_may_say_for_what(cx: &mut TestAppContext) {
+    let models = vec![
+        ModelEntry::new("claude", "Claude", Some("opus".into()), "Opus")
+            .recommended_as("recommended for Claude"),
+        ModelEntry::new("codex", "Codex", Some("gpt-5".into()), "GPT-5")
+            .recommended_as("recommended for Codex"),
+    ];
+    let (_, cx, seen) = host_with(cx, Chosen::First, models);
+    assert_eq!(
+        label("judge-model", cx).as_deref(),
+        Some("Claude · Opus · recommended for Claude")
+    );
+    open(cx);
+    assert_eq!(
+        label("judge-model-codex-gpt-5", cx).as_deref(),
+        Some("Codex · GPT-5 · recommended for Codex")
+    );
+    // It is recommended all the same: chosen, it reports its provider with no model.
+    cx.update(|window, cx| window.click("judge-model-codex-gpt-5", cx));
+    assert_eq!(
+        seen.borrow().last(),
+        Some(&(Chosen::Model("codex".into(), None), None))
+    );
+}

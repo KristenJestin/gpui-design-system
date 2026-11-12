@@ -41,6 +41,7 @@ pub struct ModelEntry {
     name: SharedString,
     efforts: Vec<SharedString>,
     recommended: bool,
+    mark: Option<SharedString>,
     proposes: Option<SharedString>,
 }
 
@@ -58,6 +59,7 @@ impl ModelEntry {
             name: name.into(),
             efforts: Vec::new(),
             recommended: false,
+            mark: None,
             proposes: None,
         }
     }
@@ -66,6 +68,14 @@ impl ModelEntry {
     /// it reports the provider with no model, so that the choice keeps following the provider.
     pub fn recommended(mut self) -> Self {
         self.recommended = true;
+        self
+    }
+
+    /// Recommended, its mark in the screen's own words where `recommended` alone would not say
+    /// for what (`recommended for <case>`).
+    pub fn recommended_as(mut self, mark: impl Into<SharedString>) -> Self {
+        self.recommended = true;
+        self.mark = Some(mark.into());
         self
     }
 
@@ -327,7 +337,8 @@ impl RenderOnce for ModelChoice {
                     .replace(['/', ' '], "-")
                         + if at < self.models.len() { "" } else { "-own" },
                     if model.recommended {
-                        format!("{} · {} · {RECOMMENDED}", model.provider_title, model.name)
+                        let mark = model.mark.as_deref().unwrap_or(RECOMMENDED);
+                        format!("{} · {} · {mark}", model.provider_title, model.name)
                     } else {
                         format!("{} · {}", model.provider_title, model.name)
                     },
