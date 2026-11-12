@@ -30,6 +30,7 @@ pub mod motion;
 #[cfg(feature = "omarchy")]
 pub mod omarchy;
 pub mod page;
+pub mod pager;
 pub mod path;
 pub mod radio;
 pub mod reveal;
@@ -73,6 +74,7 @@ pub use menu::Menu;
 pub use modal::Modal;
 pub use model_choice::{Chosen, ModelChoice, ModelEntry};
 pub use page::{EmptyLine, PageHeader, Section};
+pub use pager::{Dots, Sliding, sliding};
 pub use path::path_line;
 pub use radio::RadioChoices;
 pub use reveal::{
