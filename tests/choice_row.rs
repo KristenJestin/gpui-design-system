@@ -9,6 +9,7 @@ use std::time::Duration;
 use common::{advance, init, pending_frames};
 use gpui_design_system::ChoiceRow;
 use gpui_design_system::motion::{HOVER, PANEL};
+use gpui_design_system::seen::seen;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
     Bounds, Context, Entity, InteractiveElement as _, IntoElement, ParentElement, Pixels, Render,
@@ -19,6 +20,8 @@ struct Host {
     chosen: bool,
     toggled: usize,
     with_field: bool,
+    words: &'static str,
+    width: f32,
 }
 
 impl Render for Host {
@@ -36,13 +39,18 @@ impl Render for Host {
                 .ok();
             });
         if self.with_field {
-            row = row.field(
-                "Something else:",
-                div().id("typed").h(px(30.)).test_support(),
-            );
+            // A field as a text field is drawn: padding and a border around a first line.
+            let frame = div()
+                .id("typed")
+                .px(px(8.))
+                .py(px(4.))
+                .border_1()
+                .child(div().id("typed-line").h(px(20.)).test_support())
+                .test_support();
+            row = row.field(self.words, frame).field_inset(px(5.));
         }
         div()
-            .w(px(400.))
+            .w(px(self.width))
             .flex()
             .flex_col()
             .child(row)
@@ -56,12 +64,24 @@ fn host(
     reduce: bool,
     cx: &mut TestAppContext,
 ) -> (Entity<Host>, &mut VisualTestContext) {
+    sized(chosen, with_field, reduce, ("Something else:", 400.), cx)
+}
+
+fn sized<'a>(
+    chosen: bool,
+    with_field: bool,
+    reduce: bool,
+    (words, width): (&'static str, f32),
+    cx: &'a mut TestAppContext,
+) -> (Entity<Host>, &'a mut VisualTestContext) {
     init(cx);
     cx.update(|cx| cx.set_reduce_motion(reduce));
     let (view, cx) = cx.add_window_view(move |_, _| Host {
         chosen,
         toggled: 0,
         with_field,
+        words,
+        width,
     });
     cx.simulate_resize(size(px(600.), px(400.)));
     cx.update(|window, cx| window.render_frame(cx));
@@ -81,6 +101,11 @@ fn present(id: &str, cx: &mut VisualTestContext) -> bool {
 fn label(id: &str, cx: &mut VisualTestContext) -> Option<String> {
     let id = id.to_owned();
     cx.update(|window, _| window.find(id).label().map(str::to_owned))
+}
+
+fn middle(id: &str, cx: &mut VisualTestContext) -> Pixels {
+    let at = bounds(id, cx);
+    at.top() + at.size.height / 2.
 }
 
 fn click(id: &str, cx: &mut VisualTestContext) {
@@ -108,8 +133,11 @@ fn the_field_unfolds_and_fades_in_to_the_right_of_the_label_once_chosen(cx: &mut
         bounds("other", cx).size.height,
         bounds("after", cx).origin.y,
     );
+    assert_eq!(seen("other-field"), Some(0.0), "not shown yet");
     click("other", cx);
     advance(cx, PANEL / 3);
+    let fading = seen("other-field").unwrap();
+    assert!(0.0 < fading && fading < 1.0, "it fades in: {fading}");
     let height = bounds("other", cx).size.height;
     assert!(
         before < height,
@@ -130,6 +158,7 @@ fn the_field_unfolds_and_fades_in_to_the_right_of_the_label_once_chosen(cx: &mut
         typed.right() <= row.right() && row.right() - typed.right() <= px(12.),
         "it takes the rest of the row: {row:?} {typed:?}"
     );
+    assert_eq!(seen("other-field"), Some(1.0));
     assert_eq!(typed.size.height, px(30.));
     assert_eq!(row.size.height, px(48.), "the row is as high as its field");
     assert_eq!(toggled(&view, cx), 1);
@@ -137,21 +166,61 @@ fn the_field_unfolds_and_fades_in_to_the_right_of_the_label_once_chosen(cx: &mut
 }
 
 #[gpui_kit::test]
-fn the_label_changes_and_sits_on_the_first_line_of_the_field(cx: &mut TestAppContext) {
+fn the_label_and_the_mark_drop_onto_the_first_line_of_the_field(cx: &mut TestAppContext) {
     let (_, cx) = host(false, true, false, cx);
     assert_eq!(label("other-label", cx), Some("Something else…".to_owned()));
+    let alone = middle("other-label", cx);
+    assert_eq!(
+        middle("other-mark", cx),
+        alone,
+        "the mark is on the label's line"
+    );
     click("other", cx);
     advance(cx, PANEL * 2);
     assert_eq!(label("other-label", cx), Some("Something else:".to_owned()));
-    let (words, typed) = (bounds("other-label", cx), bounds("typed", cx));
-    assert!(
-        typed.top() < words.top() + px(8.) && words.top() < typed.top() + px(8.),
-        "on its first line: {words:?} {typed:?}"
+    let (line, words, mark) = (
+        middle("typed-line", cx),
+        middle("other-label", cx),
+        middle("other-mark", cx),
     );
+    assert!(
+        (line - words).abs() < px(1.),
+        "the label is on the field's first line: {words:?} {line:?}"
+    );
+    assert!(
+        (line - mark).abs() < px(1.),
+        "so is the mark: {mark:?} {line:?}"
+    );
+    assert!(words - alone > px(4.), "it dropped, it did not start there");
     assert_eq!(
         label("other", cx),
         Some("Something else…".to_owned()),
         "its name stays"
+    );
+}
+
+#[gpui_kit::test]
+fn a_long_label_wraps_and_the_field_keeps_its_width(cx: &mut TestAppContext) {
+    let long = "Something else entirely, said at some length before the field:";
+    let (_, cx) = sized(true, true, false, (long, 260.), cx);
+    advance(cx, PANEL);
+    let (row, words, typed) = (
+        bounds("other", cx),
+        bounds("other-label", cx),
+        bounds("typed", cx),
+    );
+    assert!(words.size.height >= px(40.), "the label wraps: {words:?}");
+    assert!(
+        typed.size.width >= px(120.),
+        "the field keeps its room: {typed:?}"
+    );
+    assert!(
+        words.right() <= typed.left(),
+        "side by side: {words:?} {typed:?}"
+    );
+    assert!(
+        typed.right() <= row.right(),
+        "inside the row: {row:?} {typed:?}"
     );
 }
 
