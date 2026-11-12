@@ -17,6 +17,7 @@ use crate::button::Button;
 use crate::cut::tipped_when_cut;
 use crate::icons::{Icon, icon};
 use crate::menu::Menu;
+use crate::tag::Tag;
 use crate::theme::palette;
 use crate::typography::Type;
 
@@ -284,29 +285,7 @@ impl RenderOnce for Section {
             window,
             cx,
         );
-        let tag = self.tag.map(|tag| {
-            tipped_when_cut(
-                div()
-                    .id(part(&self.id, "tag"))
-                    .aria_label(tag.clone())
-                    .min_w_0()
-                    .max_w(px(160.))
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .mono(11.)
-                    .text_color(p.faint)
-                    .px(px(6.))
-                    .py(px(1.))
-                    .rounded(px(5.))
-                    .border_1()
-                    .border_color(p.line)
-                    .child(tag.clone()),
-                tag,
-                window,
-                cx,
-            )
-        });
+        let tag = self.tag.map(|tag| Tag::new(part(&self.id, "tag"), tag));
         let head = div()
             .min_h(px(30.))
             .flex()
