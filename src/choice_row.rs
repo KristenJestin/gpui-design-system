@@ -3,19 +3,32 @@
 //! many lines as it needs. The whole row is the target. Its hover fades over
 //! [`HOVER`](crate::motion::HOVER); when it is chosen its fill and border fade in and its mark
 //! fills, its dot scaling in or its tick growing, over [`PANEL`](crate::motion::PANEL).
+//!
+//! A row may hold a field ([`ChoiceRow::field`]): once chosen, the field unfolds and fades in to
+//! the right of the label, which changes to its words and drops onto the field's first line, the
+//! row's height following, over [`PANEL`](crate::motion::PANEL).
 
 use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui_kit::{
-    App, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    SharedString, StatefulInteractiveElement, Styled, TestSupportExt, Window, div, px,
+    AnyElement, App, ElementId, FontWeight, InteractiveElement, IntoElement, MouseButton,
+    ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled, TestSupportExt,
+    Window, div, px,
 };
 
 use crate::color::mix;
 use crate::icons::{Icon, icon};
 use crate::interact::selectable;
+use crate::motion::Motion;
+use crate::reveal::{Shown, changing, drive, shown_frame};
 use crate::theme::palette;
+
+/// How far the label drops to sit on the first line of a one-line field: the field's own padding
+/// and border.
+const FIELD_INSET: f32 = 5.;
+/// The room between the label and its field.
+const FIELD_GAP: f32 = 8.;
 
 type OnClick = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
@@ -33,6 +46,7 @@ pub struct ChoiceRow {
     shape: Shape,
     chosen: bool,
     faint: bool,
+    field: Option<(SharedString, AnyElement)>,
     on_click: Option<OnClick>,
 }
 
@@ -47,6 +61,7 @@ impl ChoiceRow {
             shape: Shape::Round,
             chosen: false,
             faint: false,
+            field: None,
             on_click: None,
         }
     }
@@ -74,6 +89,16 @@ impl ChoiceRow {
         self
     }
 
+    /// A field the row holds once it is chosen, to the right of its label: it unfolds and fades in
+    /// and takes the rest of the row's width, the label shows `words` meanwhile (the label again
+    /// once the field is gone), and a click inside the field does not toggle the row. The label
+    /// sits on the field's first line, which the field is assumed to start with a 5 px padding
+    /// and border. Parts: `<id>-field` (the fold) and `<id>-slot` (what holds the field).
+    pub fn field(mut self, words: impl Into<SharedString>, field: impl IntoElement) -> Self {
+        self.field = Some((words.into(), field.into_any_element()));
+        self
+    }
+
     pub fn on_click(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Rc::new(f));
         self
@@ -81,7 +106,7 @@ impl ChoiceRow {
 }
 
 impl RenderOnce for ChoiceRow {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = palette(cx);
         let part = |part: &str| match &self.id {
             ElementId::Name(id) => ElementId::Name(format!("{id}-{part}").into()),
@@ -110,13 +135,59 @@ impl RenderOnce for ChoiceRow {
         if let Some(on_click) = self.on_click.clone() {
             row = row.on_click(move |_, window, cx| on_click(window, cx));
         }
-        let label = div()
-            .id(part("label"))
-            .text_size(px(14.))
-            .line_height(px(20.))
-            .when_faint(self.faint, p.mute, p.text)
-            .child(self.label.clone())
-            .test_support();
+        let faint = self.faint;
+        let label_of = move |id: ElementId, text: SharedString| {
+            div()
+                .id(id)
+                .text_size(px(14.))
+                .line_height(px(20.))
+                .when_faint(faint, p.mute, p.text)
+                .child(text)
+                .test_support()
+        };
+        let label_of = move |id: ElementId, text: SharedString, said: bool| {
+            let label = label_of(id, text.clone());
+            if said { label.aria_label(text) } else { label }
+        };
+        let top = match self.field {
+            None => label_of(part("label"), self.label.clone(), false).into_any_element(),
+            Some((words, field)) => {
+                let open = self.chosen;
+                let key = ElementId::NamedChild(Arc::new(part("field")), "presence".into());
+                let state = window.use_keyed_state(key, cx, move |_, _| {
+                    Shown::new(Motion::settled(if open { 1.0 } else { 0.0 }))
+                });
+                let at = drive(&state, open, window, cx);
+                let slot = div()
+                    .id(part("slot"))
+                    .w_full()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .child(field)
+                    .test_support();
+                let shown = shown_frame(
+                    part("field"),
+                    open,
+                    false,
+                    &at,
+                    0.,
+                    0.,
+                    slot.into_any_element(),
+                );
+                let said = if open { words } else { self.label.clone() };
+                let label_id = part("label");
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(FIELD_GAP))
+                    .child(div().flex_none().mt(px(FIELD_INSET * at.t)).child(changing(
+                        part("said"),
+                        said,
+                        move |text| label_of(label_id, text, true).into_any_element(),
+                    )))
+                    .child(div().flex_1().min_w_0().child(shown))
+                    .into_any_element()
+            }
+        };
         let line = self.description.clone().map(|description| {
             div()
                 .id(part("line"))
@@ -132,7 +203,7 @@ impl RenderOnce for ChoiceRow {
             .flex_col()
             .flex_1()
             .min_w_0()
-            .child(label)
+            .child(top)
             .children(line);
         let shape = self.shape;
         selectable(row, self.chosen, move |d, hover, on| {
