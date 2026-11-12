@@ -122,6 +122,7 @@ pub fn palette_from_toml(text: &str) -> Result<Palette, String> {
     let base = Palette::base();
     let blue = get(&["blue", "color4"]).unwrap_or(base.run);
     let yellow = get(&["yellow", "color3"]).unwrap_or(base.wait);
+    let violet = get(&["magenta", "color5"]).unwrap_or(base.pend);
     let green = get(&["green", "color2"]).unwrap_or(base.ok);
     let red = get(&["red", "color1"]).unwrap_or(base.fail);
     let tint = |c: Hsla| over(c, 0.15, bg);
@@ -153,6 +154,8 @@ pub fn palette_from_toml(text: &str) -> Result<Palette, String> {
         wait_bg: tint(yellow),
         on_wait: bg,
         wait_line: over(yellow, 0.3, lighter),
+        pend: violet,
+        pend_bg: tint(violet),
         ok: green,
         ok_bg: tint(green),
         fail: red,
@@ -281,6 +284,16 @@ mod tests {
             [p.fail, p.ok, p.wait, p.run],
             [hex(0xff5f5f), hex(0x5fd75f), hex(0xffd75f), hex(0x5fafff)]
         );
+    }
+
+    #[test]
+    fn the_magenta_of_a_theme_is_what_waits_and_its_absence_falls_back_to_the_kit_s() {
+        let theme = "background = \"#101010\"\nforeground = \"#d0d0d0\"\naccent = \"#88aaff\"\n";
+        let with = palette_from_toml(&format!("{theme}color5 = \"#d787ff\"\n")).unwrap();
+        assert_eq!(with.pend, hex(0xd787ff));
+        assert!(contrast(with.pend, with.pend_bg) >= TEXT_CONTRAST);
+        let without = palette_from_toml(theme).unwrap();
+        assert_eq!(without.pend, Palette::base().pend);
     }
 
     #[test]

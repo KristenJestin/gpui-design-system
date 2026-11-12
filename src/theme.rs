@@ -54,6 +54,10 @@ pub struct Palette {
     pub on_wait: Hsla,
     /// The border of an approval card.
     pub wait_line: Hsla,
+    /// Waits for something outside, with nothing for the user to do: a clock, a pill. Neither
+    /// the orange of `wait`, the blue of `run` nor the grey of rest.
+    pub pend: Hsla,
+    pub pend_bg: Hsla,
     pub ok: Hsla,
     pub ok_bg: Hsla,
     pub fail: Hsla,
@@ -121,6 +125,8 @@ impl Palette {
             wait_bg: hex(0xfaefdc),
             on_wait: hex(0xffffff),
             wait_line: hex(0xe8cf9e),
+            pend: hex(0x5b34c2),
+            pend_bg: hex(0xf0eafb),
             ok: hex(0x17703a),
             ok_bg: hex(0xe2f2e7),
             fail: hex(0xb3261e),
@@ -163,6 +169,8 @@ impl Palette {
             wait_bg: hex(0x2e2210),
             on_wait: hex(0x1d1300),
             wait_line: hex(0x4a3511),
+            pend: hex(0xb69cff),
+            pend_bg: hex(0x251d3d),
             ok: hex(0x4ade80),
             ok_bg: hex(0x15291c),
             fail: hex(0xf87171),
@@ -186,6 +194,7 @@ impl Palette {
         self.run = readable(self.run, self.run_bg, min);
         self.wait = readable(self.wait, self.wait_bg, min);
         self.on_wait = readable(self.on_wait, self.wait, min);
+        self.pend = readable(self.pend, self.pend_bg, min);
         self.ok = readable(self.ok, self.ok_bg, min);
         self.fail = readable(self.fail, self.fail_bg, min);
         self.on_fail = readable(self.on_fail, self.fail, min);
@@ -222,6 +231,8 @@ impl Palette {
             wait_bg: m(self.wait_bg, to.wait_bg),
             on_wait: m(self.on_wait, to.on_wait),
             wait_line: m(self.wait_line, to.wait_line),
+            pend: m(self.pend, to.pend),
+            pend_bg: m(self.pend_bg, to.pend_bg),
             ok: m(self.ok, to.ok),
             ok_bg: m(self.ok_bg, to.ok_bg),
             fail: m(self.fail, to.fail),
@@ -372,6 +383,45 @@ mod tests {
     }
 
     #[test]
+    fn what_waits_for_the_outside_has_a_colour_of_its_own_that_reads_in_both_shades() {
+        for shade in [Shade::Dark, Shade::Light] {
+            let p = Palette::own(shade);
+            // Not the primary, not running, not the user's turn, not the grey of rest.
+            for (name, other) in [
+                ("run", p.run),
+                ("wait", p.wait),
+                ("ok", p.ok),
+                ("fail", p.fail),
+                ("mute", p.mute),
+                ("faint", p.faint),
+                ("acc", p.acc),
+            ] {
+                assert_ne!(p.pend, other, "{shade:?}: pend is not {name}");
+            }
+            let surfaces = [
+                p.body, p.bg, p.rail, p.side, p.card, p.card2, p.hover, p.sel, p.shell, p.field,
+            ];
+            for surface in surfaces {
+                let ratio = contrast(p.pend, surface);
+                assert!(
+                    ratio >= TEXT_CONTRAST,
+                    "{shade:?}: pend on a surface {ratio:.2}"
+                );
+            }
+            let ratio = contrast(p.pend, p.pend_bg);
+            assert!(
+                ratio >= TEXT_CONTRAST,
+                "{shade:?}: pend on pend_bg {ratio:.2}"
+            );
+            assert_eq!(
+                p.with_readable_inks(),
+                p,
+                "{shade:?}: it needs no correction"
+            );
+        }
+    }
+
+    #[test]
     fn the_shadows_of_light_are_lighter_and_those_of_dark_are_unchanged() {
         let (light, dark) = (Palette::own(Shade::Light), Palette::base());
         // Dark: a black at full strength, each overlay takes its own share, as before.
@@ -416,6 +466,7 @@ mod tests {
             ("faint", light.faint),
             ("run", light.run),
             ("wait", light.wait),
+            ("pend", light.pend),
             ("ok", light.ok),
             ("fail", light.fail),
         ];
@@ -433,6 +484,7 @@ mod tests {
             ("run", light.run, light.run_bg),
             ("wait", light.wait, light.wait_bg),
             ("on_wait", light.on_wait, light.wait),
+            ("pend", light.pend, light.pend_bg),
             ("ok", light.ok, light.ok_bg),
             ("fail", light.fail, light.fail_bg),
             ("on_fail", light.on_fail, light.fail),
