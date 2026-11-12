@@ -1,8 +1,9 @@
 //! `ModelChoice`: the one way to choose a model (`docs/reference/gpui.md`, rule 15). One select
 //! whose entries are `<provider> · <model>`, grouped by provider, with the effort in a narrow
-//! select beside it when the model has efforts. A default that is a rule is the first option, said
-//! as the rule and, on its second line, what it gives today; a choice that is not a model comes
-//! before the models. "No model" is never an entry: a feature is turned off by its switch.
+//! select beside it when the model has efforts. There is never a row named "default": a select
+//! opens on the value that applies, selected as if chosen and marked `recommended`, and choosing
+//! it back clears the choice. A choice that is not a model comes before the models. "No model" is
+//! never an entry: a feature is turned off by its switch.
 //!
 //! The kit knows no provider: the screen gives the models the application knows ([`ModelEntry`]).
 
@@ -22,14 +23,16 @@ use crate::space;
 use crate::theme::palette;
 
 /// The width of the model's select on a line of a card.
-const COMPACT: f32 = 240.;
-/// The width of the effort's select.
-const EFFORT: f32 = 120.;
+const COMPACT: f32 = 300.;
+/// The width of the effort's select: room for `xhigh · recommended`.
+const EFFORT: f32 = 170.;
+/// What marks the value that applies when nothing is chosen.
+const RECOMMENDED: &str = "recommended";
 /// The width of the `picked` mark.
 const MARK: f32 = 52.;
 
-/// A model the screen offers: its provider (its key and its name) and the model (`None` is the
-/// provider's own default), with the efforts it takes.
+/// A model the screen offers: its provider (its key and its name) and the model (`None` while the
+/// provider's models are not known), with the efforts it takes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ModelEntry {
     provider: SharedString,
@@ -37,6 +40,9 @@ pub struct ModelEntry {
     model: Option<SharedString>,
     name: SharedString,
     efforts: Vec<SharedString>,
+    recommended: bool,
+    mark: Option<SharedString>,
+    proposes: Option<SharedString>,
 }
 
 impl ModelEntry {
@@ -52,7 +58,32 @@ impl ModelEntry {
             model,
             name: name.into(),
             efforts: Vec::new(),
+            recommended: false,
+            mark: None,
+            proposes: None,
         }
+    }
+
+    /// The model the provider takes when none is named: it is marked `recommended`, and choosing
+    /// it reports the provider with no model, so that the choice keeps following the provider.
+    pub fn recommended(mut self) -> Self {
+        self.recommended = true;
+        self
+    }
+
+    /// Recommended, its mark in the screen's own words where `recommended` alone would not say
+    /// for what (`recommended for <case>`).
+    pub fn recommended_as(mut self, mark: impl Into<SharedString>) -> Self {
+        self.recommended = true;
+        self.mark = Some(mark.into());
+        self
+    }
+
+    /// The effort this model runs with when none is chosen: marked `recommended` among its
+    /// efforts, and choosing it reports no effort.
+    pub fn proposes(mut self, effort: impl Into<SharedString>) -> Self {
+        self.proposes = Some(effort.into());
+        self
     }
 
     pub fn efforts(mut self, efforts: impl IntoIterator<Item = impl Into<SharedString>>) -> Self {
@@ -60,13 +91,22 @@ impl ModelEntry {
         self
     }
 
+    /// Whether it stands for `model` of `provider`: a recommended model stands for none named.
     fn is(&self, provider: &str, model: Option<&str>) -> bool {
-        self.provider == provider && self.model.as_deref() == model
+        self.provider == provider
+            && (self.model.as_deref() == model || (self.recommended && model.is_none()))
+    }
+
+    /// What choosing it reports.
+    fn chosen(&self) -> Chosen {
+        let model = self.model.clone().filter(|_| !self.recommended);
+        Chosen::Model(self.provider.clone(), model)
     }
 }
 
-/// What is chosen: the first option (the default, or As in Settings), a choice that is not a
-/// model, by its key, or a provider's model (`None` its default).
+/// What is chosen: the first option (As in Settings), or, with `follows`, nothing (the first
+/// recommended model applies), a choice that is not a model, by its key, or a provider's model
+/// (`None` its recommended one).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Chosen {
     First,
@@ -76,7 +116,7 @@ pub enum Chosen {
 
 type OnChoose = Rc<dyn Fn(Chosen, Option<SharedString>, &mut Window, &mut App) + 'static>;
 
-/// The first option: a rule and what it gives today.
+/// The first option: the rule of a screen that inherits Settings' value, and what it gives today.
 #[derive(Clone)]
 struct First {
     title: SharedString,
@@ -90,6 +130,7 @@ pub struct ModelChoice {
     chosen: Chosen,
     effort: Option<SharedString>,
     first: Option<First>,
+    follows: bool,
     choices: Vec<SelectOption>,
     models: Vec<ModelEntry>,
     picked: bool,
@@ -115,6 +156,7 @@ impl ModelChoice {
             chosen,
             effort: None,
             first: None,
+            follows: false,
             choices: Vec::new(),
             models: Vec::new(),
             picked: false,
@@ -127,17 +169,11 @@ impl ModelChoice {
         }
     }
 
-    /// The first option, a default that is a rule (`Strongest of the provider`), its
-    /// second line what it gives today (`Opus for Claude`).
-    pub fn default(
-        mut self,
-        rule: impl Into<SharedString>,
-        gives: impl Into<SharedString>,
-    ) -> Self {
-        self.first = Some(First {
-            title: rule.into(),
-            gives: gives.into(),
-        });
+    /// Nothing chosen is a rule: the first recommended model applies (the first model when none
+    /// is marked), selected and marked, and choosing it back, or its proposed effort back,
+    /// reports `Chosen::First`, the choice cleared.
+    pub fn follows(mut self) -> Self {
+        self.follows = true;
         self
     }
 
@@ -169,7 +205,7 @@ impl ModelChoice {
         self
     }
 
-    /// The effort chosen with the model, `None` for the model's own.
+    /// The effort chosen with the model, `None` for the one it proposes.
     pub fn effort(mut self, effort: Option<SharedString>) -> Self {
         self.effort = effort;
         self
@@ -270,7 +306,9 @@ impl RenderOnce for ModelChoice {
                 .iter()
                 .find(|m| &m.provider == provider)
                 .map_or_else(|| provider.clone(), |m| m.provider_title.clone());
-            let name = model.clone().unwrap_or_else(|| "Its default".into());
+            let name = model
+                .clone()
+                .unwrap_or_else(|| "The provider's model".into());
             models.push(ModelEntry::new(
                 provider.clone(),
                 title,
@@ -294,25 +332,39 @@ impl RenderOnce for ModelChoice {
                     format!(
                         "{}-{}",
                         model.provider,
-                        model.model.as_deref().unwrap_or("default")
+                        model.model.as_deref().unwrap_or("recommended")
                     )
                     .replace(['/', ' '], "-")
                         + if at < self.models.len() { "" } else { "-own" },
-                    format!("{} · {}", model.provider_title, model.name),
+                    if model.recommended {
+                        let mark = model.mark.as_deref().unwrap_or(RECOMMENDED);
+                        format!("{} · {} · {mark}", model.provider_title, model.name)
+                    } else {
+                        format!("{} · {}", model.provider_title, model.name)
+                    },
                 )
                 .group(model.provider_title.clone()),
             );
-            targets.push(Chosen::Model(model.provider.clone(), model.model.clone()));
+            targets.push(model.chosen());
         }
-        let at = targets.iter().position(|t| *t == self.chosen).unwrap_or(0);
-        let efforts = match &self.chosen {
-            Chosen::Model(provider, model) => models
-                .iter()
-                .find(|m| m.is(provider, model.as_deref()))
-                .map(|m| m.efforts.clone())
-                .unwrap_or_default(),
-            _ => Vec::new(),
+        // Where nothing is chosen, the first recommended model applies.
+        let applying = models.iter().position(|m| m.recommended).unwrap_or(0);
+        let shown = match &self.chosen {
+            Chosen::First if self.follows => Some(applying),
+            chosen => models.iter().position(|m| match chosen {
+                Chosen::Model(provider, model) => m.is(provider, model.as_deref()),
+                _ => false,
+            }),
         };
+        let offset = options.len() - models.len();
+        let cleared = self.follows.then_some(offset + applying);
+        let at = shown
+            .map(|at| offset + at)
+            .or_else(|| targets.iter().position(|t| *t == self.chosen))
+            .unwrap_or(0);
+        let entry = shown.and_then(|at| models.get(at));
+        let efforts = entry.map(|m| m.efforts.clone()).unwrap_or_default();
+        let proposes = entry.and_then(|m| m.proposes.clone());
         let has_efforts = !efforts.is_empty();
         let on_choose = self.on_choose.clone();
         let model = Select::new(part(&id, "model"), options, at)
@@ -321,7 +373,11 @@ impl RenderOnce for ModelChoice {
                 let on_choose = on_choose.clone();
                 move |index, window, cx| {
                     if let Some(on_choose) = &on_choose {
-                        on_choose(targets[index].clone(), None, window, cx);
+                        let chosen = match cleared {
+                            Some(cleared) if index == cleared => Chosen::First,
+                            _ => targets[index].clone(),
+                        };
+                        on_choose(chosen, None, window, cx);
                     }
                 }
             });
@@ -330,30 +386,49 @@ impl RenderOnce for ModelChoice {
         } else {
             model
         };
-        let mut levels: Vec<Option<SharedString>> = vec![None];
-        levels.extend(efforts.iter().cloned().map(Some));
+        // The effort that applies is selected when none is chosen, and marked: no row is named
+        // "default".
+        let mut levels: Vec<SharedString> = efforts.clone();
         if has_efforts
             && let Some(own) = &self.effort
             && !efforts.contains(own)
         {
-            levels.push(Some(own.clone()));
+            levels.push(own.clone());
         }
-        let effort_at = levels.iter().position(|l| *l == self.effort).unwrap_or(0);
+        let effort_at = self
+            .effort
+            .as_ref()
+            .or(proposes.as_ref())
+            .and_then(|level| levels.iter().position(|l| l == level))
+            .unwrap_or(0);
         let effort = Select::new(
             part(&id, "effort"),
-            levels.iter().map(|level| match level {
-                None => SelectOption::new("default", "Default"),
-                Some(level) => SelectOption::new(level.clone(), level.clone()),
+            levels.iter().map(|level| {
+                let said = if proposes.as_ref() == Some(level) {
+                    format!("{level} · {RECOMMENDED}")
+                } else {
+                    level.to_string()
+                };
+                SelectOption::new(level.clone(), said)
             }),
             effort_at,
         )
         .width(px(EFFORT))
         .disabled(self.disabled)
         .on_choose({
-            let chosen = self.chosen.clone();
+            // The model that applies with the effort it proposes is no choice at all.
+            let clears = self.follows && shown == Some(applying);
+            let chosen = entry.map_or_else(|| self.chosen.clone(), ModelEntry::chosen);
             move |index, window, cx| {
                 if let Some(on_choose) = &on_choose {
-                    on_choose(chosen.clone(), levels[index].clone(), window, cx);
+                    let level = levels[index].clone();
+                    let effort = (proposes.as_ref() != Some(&level)).then_some(level);
+                    // An effort needs its provider named; the recommended one clears all.
+                    let chosen = match (&effort, clears) {
+                        (None, true) => Chosen::First,
+                        _ => chosen.clone(),
+                    };
+                    on_choose(chosen, effort, window, cx);
                 }
             }
         });
