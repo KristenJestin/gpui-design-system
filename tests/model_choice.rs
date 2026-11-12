@@ -24,6 +24,7 @@ struct Host {
     chosen: Chosen,
     effort: Option<SharedString>,
     picked: bool,
+    models: Vec<ModelEntry>,
     seen: Seen,
 }
 
@@ -35,7 +36,7 @@ fn models() -> Vec<ModelEntry> {
             .proposes("high"),
         ModelEntry::new("claude", "Claude", Some("haiku".into()), "Haiku"),
         ModelEntry::new("codex", "Codex", Some("gpt-5".into()), "GPT-5")
-            .efforts(["medium"])
+            .efforts(["low", "medium"])
             .proposes("medium"),
     ]
 }
@@ -45,7 +46,7 @@ impl Render for Host {
         let (this, seen) = (cx.entity().downgrade(), self.seen.clone());
         let choice = ModelChoice::new("judge", "Model", self.chosen.clone())
             .follows()
-            .models(models())
+            .models(self.models.clone())
             .effort(self.effort.clone())
             .picked(self.picked)
             .cost("Each decision is a turn of this model, on your own quota.")
@@ -63,6 +64,14 @@ impl Render for Host {
 }
 
 fn host(cx: &mut TestAppContext, chosen: Chosen) -> (Entity<Host>, &mut VisualTestContext, Seen) {
+    host_with(cx, chosen, models())
+}
+
+fn host_with(
+    cx: &mut TestAppContext,
+    chosen: Chosen,
+    models: Vec<ModelEntry>,
+) -> (Entity<Host>, &mut VisualTestContext, Seen) {
     init(cx);
     let seen = Rc::new(RefCell::new(Vec::new()));
     let given = seen.clone();
@@ -70,6 +79,7 @@ fn host(cx: &mut TestAppContext, chosen: Chosen) -> (Entity<Host>, &mut VisualTe
         chosen,
         effort: None,
         picked: false,
+        models,
         seen: given,
     });
     cx.simulate_resize(size(px(900.), px(700.)));
@@ -206,14 +216,11 @@ fn the_effort_unfolds_only_for_a_model_with_efforts(cx: &mut TestAppContext) {
         Some(&(Chosen::Model("claude".into(), None), Some("low".into())))
     );
     advance(cx, PANEL * 2);
-    // Back on the recommended effort: no effort chosen, the provider's model still named.
+    // Back on the recommended effort: the choice clears.
     cx.update(|window, cx| window.click("judge-effort", cx));
     advance(cx, ENTER * 2);
     cx.update(|window, cx| window.click("judge-effort-high", cx));
-    assert_eq!(
-        seen.borrow().last(),
-        Some(&(Chosen::Model("claude".into(), None), None))
-    );
+    assert_eq!(seen.borrow().last(), Some(&(Chosen::First, None)));
     advance(cx, PANEL * 2);
     // A model without efforts: it folds away.
     view.update(cx, |host, cx| {
@@ -314,4 +321,101 @@ fn a_compact_model_choice_without_label_keeps_its_accessible_name(cx: &mut TestA
             window.find("judge").bounds().origin.x
         );
     });
+}
+
+/// Chooses `level` in the effort's select.
+fn choose_effort(level: &str, cx: &mut VisualTestContext) {
+    cx.update(|window, cx| window.click("judge-effort", cx));
+    advance(cx, ENTER * 2);
+    let key = format!("judge-effort-{level}");
+    cx.update(|window, cx| window.click(key, cx));
+    advance(cx, PANEL * 2);
+}
+
+#[gpui_kit::test]
+fn choosing_the_recommended_effort_back_clears_the_choice(cx: &mut TestAppContext) {
+    let (_, cx, seen) = host(cx, Chosen::First);
+    choose_effort("low", cx);
+    assert_eq!(
+        seen.borrow().last(),
+        Some(&(Chosen::Model("claude".into(), None), Some("low".into())))
+    );
+    // The model that applies, with the effort it proposes: nothing is chosen any more.
+    choose_effort("high", cx);
+    assert_eq!(seen.borrow().last(), Some(&(Chosen::First, None)));
+    assert_eq!(
+        label("judge-model", cx).as_deref(),
+        Some("Claude · Opus · recommended")
+    );
+    assert_eq!(
+        label("judge-effort", cx).as_deref(),
+        Some("high · recommended")
+    );
+}
+
+#[gpui_kit::test]
+fn the_model_that_applies_named_with_its_effort_back_clears(cx: &mut TestAppContext) {
+    let (_, cx, seen) = host(cx, Chosen::Model("claude".into(), Some("opus".into())));
+    choose_effort("low", cx);
+    choose_effort("high", cx);
+    assert_eq!(seen.borrow().last(), Some(&(Chosen::First, None)));
+}
+
+#[gpui_kit::test]
+fn the_recommended_effort_of_another_model_keeps_its_model(cx: &mut TestAppContext) {
+    let (_, cx, seen) = host(cx, Chosen::Model("codex".into(), Some("gpt-5".into())));
+    choose_effort("low", cx);
+    choose_effort("medium", cx);
+    assert_eq!(
+        seen.borrow().last(),
+        Some(&(Chosen::Model("codex".into(), Some("gpt-5".into())), None)),
+        "a model that does not apply stays chosen with the effort it proposes"
+    );
+}
+
+#[gpui_kit::test]
+fn with_no_recommended_entry_the_first_model_applies(cx: &mut TestAppContext) {
+    let models = vec![
+        ModelEntry::new("claude", "Claude", Some("opus".into()), "Opus")
+            .efforts(["low", "high"])
+            .proposes("high"),
+        ModelEntry::new("codex", "Codex", Some("gpt-5".into()), "GPT-5"),
+    ];
+    let (_, cx, seen) = host_with(cx, Chosen::First, models);
+    assert_eq!(
+        label("judge-model", cx).as_deref(),
+        Some("Claude · Opus"),
+        "nothing is marked when the screen marks nothing"
+    );
+    choose_effort("low", cx);
+    assert_eq!(
+        seen.borrow().last(),
+        Some(&(
+            Chosen::Model("claude".into(), Some("opus".into())),
+            Some("low".into())
+        ))
+    );
+    choose_effort("high", cx);
+    assert_eq!(seen.borrow().last(), Some(&(Chosen::First, None)));
+}
+
+#[gpui_kit::test]
+fn the_recommended_entry_given_first_is_the_one_selected(cx: &mut TestAppContext) {
+    // The provider that applies, its models not known yet, before another provider's
+    // recommended model: the select opens on it, never on the other provider's.
+    let models = vec![
+        ModelEntry::new("claude", "Claude", None, "Models not known yet").recommended(),
+        ModelEntry::new("codex", "Codex", Some("gpt-5".into()), "GPT-5").recommended(),
+    ];
+    let (_, cx, seen) = host_with(cx, Chosen::First, models);
+    assert_eq!(
+        label("judge-model", cx).as_deref(),
+        Some("Claude · Models not known yet · recommended")
+    );
+    open(cx);
+    cx.update(|window, cx| window.click("judge-model-codex-gpt-5", cx));
+    assert_eq!(
+        seen.borrow().last(),
+        Some(&(Chosen::Model("codex".into(), None), None))
+    );
 }

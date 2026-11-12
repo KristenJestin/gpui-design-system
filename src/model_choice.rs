@@ -159,8 +159,9 @@ impl ModelChoice {
         }
     }
 
-    /// Nothing chosen is a rule: the first recommended model applies, selected and marked, and
-    /// choosing it back reports `Chosen::First`, the choice cleared.
+    /// Nothing chosen is a rule: the first recommended model applies (the first model when none
+    /// is marked), selected and marked, and choosing it back, or its proposed effort back,
+    /// reports `Chosen::First`, the choice cleared.
     pub fn follows(mut self) -> Self {
         self.follows = true;
         self
@@ -404,14 +405,15 @@ impl RenderOnce for ModelChoice {
         .width(px(EFFORT))
         .disabled(self.disabled)
         .on_choose({
-            let follows = self.follows && matches!(self.chosen, Chosen::First);
+            // The model that applies with the effort it proposes is no choice at all.
+            let clears = self.follows && shown == Some(applying);
             let chosen = entry.map_or_else(|| self.chosen.clone(), ModelEntry::chosen);
             move |index, window, cx| {
                 if let Some(on_choose) = &on_choose {
                     let level = levels[index].clone();
                     let effort = (proposes.as_ref() != Some(&level)).then_some(level);
                     // An effort needs its provider named; the recommended one clears all.
-                    let chosen = match (&effort, follows) {
+                    let chosen = match (&effort, clears) {
                         (None, true) => Chosen::First,
                         _ => chosen.clone(),
                     };
