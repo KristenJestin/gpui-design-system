@@ -1,7 +1,8 @@
 //! One page of several at a time. `sliding` draws the page shown and, when the index changes,
 //! slides it in from the side of the move (the next from the right, the previous from the left)
-//! over [`PANEL`] while it fades in. `Dots` says it, a dot per page: the page shown is a longer
-//! dot, a page done is filled with the primary; each change fades.
+//! over [`PANEL`] while it fades in, inside its frame, which holds still and clips it. `Dots`
+//! says it, a dot per page: the page shown is a longer dot, a page done is filled with the
+//! primary; each change fades.
 //!
 //! For a test: the frame of `sliding` notes how far it is in (0 to 1) under its id; each dot is
 //! `<id>-<n>` (from 0), labelled `n of m` (`, done` once done) and selected while its page is
@@ -77,13 +78,20 @@ impl RenderOnce for Sliding {
             window.request_animation_frame();
         }
         seen::note(&self.id, t);
+        // The frame holds still and the page moves in it: nothing is drawn past its edges.
         div()
             .id(self.id)
             .w_full()
-            .relative()
-            .left(px(side * SLIDE * (1.0 - t)))
-            .opacity(t)
-            .child(self.content)
+            .overflow_hidden()
+            .test_support()
+            .child(
+                div()
+                    .w_full()
+                    .relative()
+                    .left(px(side * SLIDE * (1.0 - t)))
+                    .opacity(t)
+                    .child(self.content),
+            )
     }
 }
 

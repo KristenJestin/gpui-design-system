@@ -35,8 +35,20 @@ impl Render for Host {
                 self.page,
                 div()
                     .id(format!("page-{}", self.page))
+                    .relative()
                     .h(px(40.))
                     .child(format!("Page {}", self.page + 1))
+                    // What the page draws at its right edge.
+                    .child(
+                        div()
+                            .id(format!("page-{}-edge", self.page))
+                            .absolute()
+                            .top_0()
+                            .right_0()
+                            .w(px(2.))
+                            .h(px(40.))
+                            .test_support(),
+                    )
                     .test_support(),
             ))
     }
@@ -99,6 +111,34 @@ fn the_next_page_slides_in_from_the_right_and_the_previous_from_the_left(cx: &mu
     advance(cx, PANEL * 2);
     assert_eq!(x_of("page-0", cx), rest);
     assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn the_sliding_page_stays_within_its_frame_mid_animation(cx: &mut TestAppContext) {
+    let (view, cx) = host(false, cx);
+    let rest = x_of("page-0", cx);
+    assert!(cx.update(|window, _| window.find("page-0-edge").visible()));
+
+    go(&view, 1, cx);
+    advance(cx, PANEL / 4);
+    let off = x_of("page-1", cx) - rest;
+    assert!(off > 2.0, "mid-slide, further than the edge is wide: {off}");
+    let (frame, edge) = cx.update(|window, _| {
+        (
+            window.find("pages").bounds(),
+            window.find("page-1-edge").bounds(),
+        )
+    });
+    assert!(
+        edge.left() >= frame.right(),
+        "past the frame: {edge:?} {frame:?}"
+    );
+    assert!(
+        !cx.update(|window, _| window.find("page-1-edge").visible()),
+        "what slides past the frame is not drawn"
+    );
+    advance(cx, PANEL * 2);
+    assert!(cx.update(|window, _| window.find("page-1-edge").visible()));
 }
 
 #[gpui_kit::test]
