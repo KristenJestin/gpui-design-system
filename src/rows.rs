@@ -285,7 +285,7 @@ impl RenderOnce for TreeRow {
             ),
         };
         if let Some(on_click) = self.on_click {
-            row = row.on_click(on_click);
+            row = row.cursor_pointer().on_click(on_click);
         }
         wire(row, state, false).test_support()
     }

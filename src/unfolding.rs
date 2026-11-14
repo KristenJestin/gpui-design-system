@@ -132,7 +132,6 @@ impl RenderOnce for Unfolding {
             .items_center()
             .gap(space::SM)
             .rounded(radius::LIST_ROW)
-            .cursor_pointer()
             .text_size(px(12.5))
             .child(chevron(part(&self.id, "chevron"), open, window, cx));
         if let Some(leading) = self.leading {
@@ -143,7 +142,9 @@ impl RenderOnce for Unfolding {
             line = line.child(control(part(&self.id, "trailing"), trailing));
         }
         if let Some(on_toggle) = self.on_toggle {
-            line = line.on_click(move |_, window, cx| on_toggle(!open, window, cx));
+            line = line
+                .cursor_pointer()
+                .on_click(move |_, window, cx| on_toggle(!open, window, cx));
         }
         let line_id = self.id.clone();
         let line = hoverable(line, move |d, t| {
@@ -249,7 +250,6 @@ impl RenderOnce for Summary {
             .border_1()
             .border_dashed()
             .border_color(p.line2)
-            .cursor_pointer()
             .text_size(px(12.))
             .child(
                 div()
@@ -276,7 +276,7 @@ impl RenderOnce for Summary {
             line.child(div().flex_1())
                 .child(chevron(part(&self.id, "chevron"), open, window, cx));
         let on_toggle = self.on_toggle;
-        line = line.on_click(move |_, window, cx| {
+        line = line.cursor_pointer().on_click(move |_, window, cx| {
             dismissed.update(cx, |dismissed, cx| {
                 *dismissed = open && forced;
                 cx.notify();

@@ -158,7 +158,8 @@ impl RenderOnce for Dropdown {
             .child(self.label)
             .child(icon(Icon::Choose).size(px(10.)).text_color(p.faint))
             .when_some(toggle, |d, toggle| {
-                d.on_click(move |_, window, cx| toggle(window, cx))
+                d.cursor_pointer()
+                    .on_click(move |_, window, cx| toggle(window, cx))
             });
         let (open, ink) = (self.open, if self.strong { p.text } else { p.mute });
         let button = hoverable(button, move |d, t| {

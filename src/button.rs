@@ -323,7 +323,7 @@ impl RenderOnce for Button {
         if !self.disabled
             && let Some(on_click) = self.on_click
         {
-            button = button.on_click(on_click);
+            button = button.cursor_pointer().on_click(on_click);
         }
         let on_hover = tip.clone();
         wire_with(button, state, true, move |hovered, cx| {

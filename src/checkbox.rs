@@ -124,14 +124,15 @@ impl RenderOnce for Checkbox {
             .aria_selected(state == CheckState::Checked)
             .flex()
             .items_center()
-            .gap(px(8.))
-            .cursor_pointer();
+            .gap(px(8.));
         if state == CheckState::Mixed {
             // GPUI has no mixed flag to set, so its value says it to assistive technology.
             root = root.aria_value("mixed");
         }
         if let Some(on_change) = self.on_change {
-            root = root.on_click(move |_, window, cx| on_change(state.next(), window, cx));
+            root = root
+                .cursor_pointer()
+                .on_click(move |_, window, cx| on_change(state.next(), window, cx));
         }
         let label = self.labelled.then(|| {
             div()

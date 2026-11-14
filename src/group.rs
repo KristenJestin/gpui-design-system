@@ -148,7 +148,6 @@ impl RenderOnce for Shown {
             .flex()
             .items_center()
             .gap(space::SM)
-            .cursor_pointer()
             .child(chevron(part(&self.id, "chevron"), open, window, cx))
             .child(
                 div()
@@ -183,7 +182,9 @@ impl RenderOnce for Shown {
             header = header.child(tipped_when_cut(said, sentence, window, cx));
         }
         if let Some(on_toggle) = self.on_toggle {
-            header = header.on_click(move |_, window, cx| on_toggle(!open, window, cx));
+            header = header
+                .cursor_pointer()
+                .on_click(move |_, window, cx| on_toggle(!open, window, cx));
         }
         let header_id = self.id.clone();
         let header = hoverable(header, move |d, t| {
