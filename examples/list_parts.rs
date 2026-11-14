@@ -74,7 +74,7 @@ impl Page {
     fn new() -> Self {
         Self {
             rows: ROWS.to_vec(),
-            grouped: Grouped::default(),
+            grouped: Grouped::new("tools"),
             unfolded: HashSet::new(),
             folded: HashSet::new(),
             picked: HashSet::new(),
@@ -97,20 +97,21 @@ impl Render for Page {
             cx.reduce_motion(),
         );
         let this = cx.entity().downgrade();
-        let mut list = div().flex().flex_col();
-        for ((group, rows), (_, title, sentence)) in self.grouped.groups().zip(GROUPS) {
+        let mut list = div().flex().flex_col().gap(px(4.));
+        for (rows, (group, title, sentence)) in self.grouped.groups().zip(GROUPS) {
             let toggled = this.clone();
             let items = rows.rows().map(|row| {
                 let at = *row.value;
+                let id = row.id();
                 let (name, _, said) = self.rows[at];
                 let (opened, picked) = (self.unfolded.contains(&at), self.picked.contains(&at));
                 let (on_toggle, on_move, on_pick) = (cx.entity(), cx.entity(), cx.entity());
-                let next = GROUPS[(GROUPS.iter().position(|(g, ..)| g == group).unwrap() + 1) % 3].0;
+                let next = GROUPS[(GROUPS.iter().position(|(g, ..)| *g == group).unwrap() + 1) % 3].0;
                 Item::new(
-                    format!("{group}-{name}"),
+                    id,
                     row.placement,
-                    Unfolding::new(format!("row-{group}-{name}"), opened)
-                        .leading(Button::choice(format!("pick-{name}"), "Pick", picked).on_click(
+                    Unfolding::new(row.part("row"), opened)
+                        .leading(Button::choice(row.part("pick"), "Pick", picked).on_click(
                             move |_, _, cx| {
                                 on_pick.update(cx, |page, cx| {
                                     if !page.picked.remove(&at) {
@@ -127,7 +128,7 @@ impl Render for Page {
                                 .child(div().mono(12.).child(SharedString::from(name)))
                                 .child(div().text_color(p.mute).child(said)),
                         )
-                        .trailing(Button::secondary(format!("move-{name}"), "Move").on_click(
+                        .trailing(Button::secondary(row.part("move"), "Move").on_click(
                             move |_, _, cx| {
                                 on_move.update(cx, |page, cx| {
                                     page.rows[at].1 = next;
@@ -155,11 +156,11 @@ impl Render for Page {
                 .into_any_element()
             });
             list = list.child(
-                Group::new(*group, title, rows.len())
+                Group::new(group, title, rows.len())
+                    .gap(px(4.))
                     .sentence(sentence)
                     .open(!self.folded.contains(group))
                     .on_toggle({
-                        let group = *group;
                         move |open, _, cx| {
                             toggled
                                 .update(cx, |page, cx| {
@@ -189,6 +190,7 @@ impl Render for Page {
             .gap(px(12.))
             .child(
                 BulkBar::new("picked", self.picked.len())
+                    .gap(px(12.))
                     .action(Button::secondary("picked-judged", "Judged"))
                     .on_clear(move |_, cx| {
                         cleared

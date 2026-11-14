@@ -11,7 +11,7 @@
 use std::rc::Rc;
 
 use gpui_kit::{
-    AnyElement, App, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    AnyElement, App, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels,
     RenderOnce, SharedString, StatefulInteractiveElement, Styled, TestSupportExt, Window, div, px,
 };
 
@@ -19,7 +19,7 @@ use crate::color::mix;
 use crate::cut::tipped_when_cut;
 use crate::ids::part;
 use crate::interact::hoverable;
-use crate::listing::Listing;
+use crate::listing::{Listing, Placement};
 use crate::reveal::{presence, presence_of};
 use crate::seen;
 use crate::space;
@@ -42,11 +42,13 @@ pub struct Group {
     count: usize,
     sentence: Option<SharedString>,
     open: bool,
+    gap: f32,
     on_toggle: Option<OnToggle>,
     rows: Vec<AnyElement>,
 }
 
 impl Group {
+    /// The group `id` called `title`, holding `count` rows.
     pub fn new(id: impl Into<ElementId>, title: impl Into<SharedString>, count: usize) -> Self {
         Self {
             id: id.into(),
@@ -54,9 +56,16 @@ impl Group {
             count,
             sentence: None,
             open: true,
+            gap: 0.0,
             on_toggle: None,
             rows: Vec::new(),
         }
+    }
+
+    /// The gap the parent flex puts between its children, which comes and goes with the group.
+    pub fn gap(mut self, gap: Pixels) -> Self {
+        self.gap = f32::from(gap);
+        self
     }
 
     /// One sentence after the count, what the group is for. It is cut with its whole text at hand.
@@ -92,6 +101,7 @@ impl RenderOnce for Group {
             title,
             sentence,
             open,
+            gap,
             on_toggle,
             rows,
             ..
@@ -108,6 +118,7 @@ impl RenderOnce for Group {
         presence_of(part(&id, "group"), line, move |count| {
             Shown { count, ..shown }.into_any_element()
         })
+        .gap(px(gap))
     }
 }
 
@@ -194,28 +205,39 @@ impl RenderOnce for Shown {
 
 /// The rows of several groups, each group a [`Listing`]: a row that changes group is a row that
 /// left one list and arrived in the other, so it folds away in the first and unfolds in the
-/// second. Draw each [`group`](Self::groups)'s rows inside a [`Group`], each in an
-/// [`Item`](crate::Item) whose id holds the group's (a row has one place at a time, but two while
-/// it moves).
+/// second. Draw each of the [`groups`](Self::groups) as a [`Group`] and each of its rows in an
+/// [`Item`](crate::Item) with the row's [`id`](GroupedRow::id): a row has one place at a time,
+/// but two while it moves, and each has its own id (and so its own state) in its own group.
 pub struct Grouped<G, T> {
+    name: SharedString,
     lists: Vec<(G, Listing<T>)>,
 }
 
-impl<G, T> Default for Grouped<G, T> {
-    fn default() -> Self {
-        Self { lists: Vec::new() }
-    }
-}
-
 impl<G: Clone + PartialEq, T> Grouped<G, T> {
+    /// The rows of the groups called `name`, which keeps the ids of two lists of a screen apart.
+    pub fn new(name: impl Into<SharedString>) -> Self {
+        Self {
+            name: name.into(),
+            lists: Vec::new(),
+        }
+    }
+
     /// The groups in the order they are shown, each with its rows.
-    pub fn groups(&self) -> impl Iterator<Item = (&G, &Listing<T>)> {
-        self.lists.iter().map(|(group, list)| (group, list))
+    pub fn groups(&self) -> impl Iterator<Item = GroupRows<'_, G, T>> {
+        self.lists
+            .iter()
+            .enumerate()
+            .map(|(index, (group, list))| GroupRows {
+                name: &self.name,
+                index,
+                group,
+                list,
+            })
     }
 
     /// Takes the rows as they are now, each with its key and its group, as [`Listing::sync`] takes
-    /// a list. `groups` is every group there can be, in the order they are shown, also the empty
-    /// ones; a row of another group is a mistake and panics.
+    /// a list. `groups` is every group there can be, in the order they are shown (which stays the
+    /// same from one call to the next), also the empty ones; a row of another group is not shown.
     pub fn sync(
         &mut self,
         groups: impl IntoIterator<Item = G>,
@@ -234,15 +256,65 @@ impl<G: Clone + PartialEq, T> Grouped<G, T> {
             .collect();
         let mut rows: Vec<Vec<(String, T)>> = lists.iter().map(|_| Vec::new()).collect();
         for (key, group, value) in items {
-            let at = lists
-                .iter()
-                .position(|(known, _)| *known == group)
-                .expect("a row of a group that is not listed");
-            rows[at].push((key, value));
+            if let Some(at) = lists.iter().position(|(known, _)| *known == group) {
+                rows[at].push((key, value));
+            }
         }
         for ((_, list), rows) in lists.iter_mut().zip(rows) {
             list.sync(rows, now, reduce);
         }
         self.lists = lists;
+    }
+}
+
+/// One group of a [`Grouped`]: the group and its rows.
+pub struct GroupRows<'a, G, T> {
+    name: &'a SharedString,
+    index: usize,
+    pub group: &'a G,
+    list: &'a Listing<T>,
+}
+
+impl<'a, G, T> GroupRows<'a, G, T> {
+    /// How many rows it holds, the ones that are folding away not counted: the count of its
+    /// [`Group`].
+    pub fn len(&self) -> usize {
+        self.list.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty()
+    }
+
+    /// Its rows, in order, those that left included while they fold away.
+    pub fn rows(&self) -> impl Iterator<Item = GroupedRow<'a, T>> {
+        let (name, index) = (self.name, self.index);
+        self.list.rows().map(move |row| GroupedRow {
+            key: row.key,
+            value: row.value,
+            placement: row.placement,
+            id: ElementId::Name(format!("{name}-{index}-{}", row.key).into()),
+        })
+    }
+}
+
+/// A row of a [`Grouped`], as [`Listing`] hands it out, with the id it has in its group.
+pub struct GroupedRow<'a, T> {
+    pub key: &'a str,
+    pub value: &'a T,
+    pub placement: Placement,
+    id: ElementId,
+}
+
+impl<T> GroupedRow<'_, T> {
+    /// The id of the row in its group: for its [`Item`](crate::Item).
+    pub fn id(&self) -> ElementId {
+        self.id.clone()
+    }
+
+    /// An id for something the row holds (its own unfolding, its controls): it is in the row's
+    /// group too, so that the two copies of a row that moves never share one.
+    pub fn part(&self, name: &str) -> ElementId {
+        part(&self.id, name)
     }
 }

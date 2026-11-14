@@ -19,6 +19,7 @@ const GROUPS: [(&str, &str, &str); 2] = [
     ("judged", "Judged", "The judge decides."),
 ];
 const ROW: f32 = 24.;
+const GAP: f32 = 12.;
 
 struct Host {
     grouped: Grouped<&'static str, &'static str>,
@@ -39,11 +40,12 @@ impl Render for Host {
             cx.reduce_motion(),
         );
         let this = cx.entity().downgrade();
-        let mut column = div().w(px(400.)).flex().flex_col();
-        for ((_, list), (group, title, sentence)) in self.grouped.groups().zip(GROUPS) {
+        let mut column = div().w(px(400.)).flex().flex_col().gap(px(GAP));
+        for (list, (group, title, sentence)) in self.grouped.groups().zip(GROUPS) {
             let this = this.clone();
             column = column.child(
                 Group::new(group, title, list.len())
+                    .gap(px(GAP))
                     .sentence(sentence)
                     .open(!self.folded.contains(&group))
                     .on_toggle(move |open, _, cx| {
@@ -57,12 +59,8 @@ impl Render for Host {
                         .ok();
                     })
                     .children(list.rows().map(|row| {
-                        Item::new(
-                            format!("{group}-{}", row.key),
-                            row.placement,
-                            div().h(px(ROW)).child(*row.value),
-                        )
-                        .into_any_element()
+                        Item::new(row.id(), row.placement, div().h(px(ROW)).child(*row.value))
+                            .into_any_element()
                     })),
             );
         }
@@ -79,7 +77,7 @@ fn host<'a>(
     cx.update(|cx| cx.set_reduce_motion(reduce));
     let rows = rows.to_vec();
     let (view, cx) = cx.add_window_view(move |_, _| Host {
-        grouped: Grouped::default(),
+        grouped: Grouped::new("rows"),
         rows,
         folded: Vec::new(),
     });
@@ -149,7 +147,7 @@ fn a_group_header_folds_its_rows(cx: &mut TestAppContext) {
         "the header stays, its rows went"
     );
     assert_eq!(value("judged-chevron"), Some(1.0));
-    assert!(!shown("judged-a", cx));
+    assert!(!shown("rows-1-a", cx));
     assert_eq!(pending_frames(cx), 0);
 
     cx.update(|window, cx| window.click("judged", cx));
@@ -196,36 +194,160 @@ fn a_group_that_gets_its_first_row_unfolds(cx: &mut TestAppContext) {
     assert!(!shown("asked", cx), "an empty group has no header");
 
     set(&view, &[("a", "asked"), ("b", "judged")], cx);
-    advance(cx, PANEL / 3);
-    let part = after(cx);
+    let first = after(cx);
+    assert!(
+        (first - empty).abs() < 2.,
+        "it starts from nothing, the gap around it included: {first} for {empty}"
+    );
+    let heights = trace(cx, after);
     assert!(shown("asked", cx));
-    assert!(empty < part, "unfolding in: {part}");
-    advance(cx, PANEL * 2);
+    assert!(
+        heights.windows(2).all(|pair| pair[0] <= pair[1]),
+        "it only grows: {heights:?}"
+    );
     let full = after(cx);
-    assert!(full > part && full > empty + ROW, "unfolded: {full}");
+    // What it takes in the end: its own height and the gap the column puts around it.
+    let group = cx.update(|window, _| f32::from(window.find("asked-group").bounds().size.height));
+    assert!(
+        (full - empty - (group + GAP)).abs() < 1.,
+        "{full} - {empty} is {group} and the gap"
+    );
+    assert!(group > ROW, "its header and its row");
     assert_eq!(pending_frames(cx), 0);
+}
+
+/// The height of the element `id`, 0 while it is not drawn.
+fn height(id: &str, cx: &mut VisualTestContext) -> f32 {
+    cx.update(|window, _| {
+        window
+            .try_find(id.to_owned())
+            .map_or(0., |found| f32::from(found.bounds().size.height))
+    })
+}
+
+/// `read` on the frame just drawn and after each frame of the next two folds.
+fn trace(cx: &mut VisualTestContext, read: impl Fn(&mut VisualTestContext) -> f32) -> Vec<f32> {
+    let mut seen = vec![read(cx)];
+    for _ in 0..(PANEL * 2).as_millis() / 16 {
+        advance(cx, Duration::from_millis(16));
+        seen.push(read(cx));
+    }
+    seen
 }
 
 #[gpui_kit::test]
 fn a_row_that_changes_group_leaves_one_and_arrives_in_the_other(cx: &mut TestAppContext) {
-    let (view, cx) = host(&[("a", "judged"), ("b", "judged")], false, cx);
+    // Both groups are already there: no header comes or goes.
+    let (view, cx) = host(
+        &[("x", "asked"), ("a", "judged"), ("b", "judged")],
+        false,
+        cx,
+    );
     let before = after(cx);
 
-    set(&view, &[("a", "asked"), ("b", "judged")], cx);
-    let first = after(cx);
-    assert!(
-        (first - before).abs() < 2.,
-        "nothing jumps when the row is moved: {first} for {before}"
+    set(
+        &view,
+        &[("x", "asked"), ("a", "asked"), ("b", "judged")],
+        cx,
     );
-    assert!(shown("judged-a", cx), "it is still in the group it leaves");
-    advance(cx, PANEL / 3);
-    assert!(shown("judged-a", cx), "folding away there");
-    assert!(shown("asked-a", cx), "unfolding here");
+    let leaving = trace(cx, |cx| height("rows-1-a", cx));
+    set(
+        &view,
+        &[("x", "asked"), ("a", "judged"), ("b", "judged")],
+        cx,
+    );
+    // Run the move again, to read the arriving copy at the same instants.
     advance(cx, PANEL * 2);
-    assert!(!shown("judged-a", cx), "it left");
-    assert!(shown("asked-a", cx), "it arrived");
-    assert!(shown("judged-b", cx), "the other row stayed");
-    cx.update(|window, _| assert_eq!(window.find("asked-count").label(), Some("1")));
+    set(
+        &view,
+        &[("x", "asked"), ("a", "asked"), ("b", "judged")],
+        cx,
+    );
+    let arriving = trace(cx, |cx| height("rows-0-a", cx));
+
+    assert!(
+        (leaving[0] - ROW).abs() < 0.5,
+        "it starts whole: {leaving:?}"
+    );
+    assert!(
+        leaving.windows(2).all(|pair| pair[0] >= pair[1]),
+        "it only folds: {leaving:?}"
+    );
+    assert!(leaving.iter().any(|h| 0. < *h && *h < ROW), "{leaving:?}");
+    assert_eq!(*leaving.last().unwrap(), 0., "and is gone");
+    assert!(
+        arriving[0] < 0.5,
+        "the other starts from nothing: {arriving:?}"
+    );
+    assert!(
+        arriving.windows(2).all(|pair| pair[0] <= pair[1]),
+        "it only grows: {arriving:?}"
+    );
+    assert!(arriving.iter().any(|h| 0. < *h && *h < ROW), "{arriving:?}");
+    assert!((arriving.last().unwrap() - ROW).abs() < 0.5, "and is whole");
+    assert!(shown("rows-1-b", cx), "the other row stayed");
+    cx.update(|window, _| assert_eq!(window.find("asked-count").label(), Some("2")));
+    assert_eq!(after(cx), before, "the same rows, the same height");
+}
+
+#[gpui_kit::test]
+fn a_row_that_changes_group_keeps_the_total_height_while_it_moves(cx: &mut TestAppContext) {
+    let (view, cx) = host(
+        &[("x", "asked"), ("a", "judged"), ("b", "judged")],
+        false,
+        cx,
+    );
+    let before = after(cx);
+    set(
+        &view,
+        &[("x", "asked"), ("a", "asked"), ("b", "judged")],
+        cx,
+    );
+    let totals = trace(cx, after);
+    assert!(
+        totals.iter().all(|total| (total - before).abs() < 2.),
+        "the rows below do not move: {totals:?} for {before}"
+    );
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn a_row_moved_back_mid_way_does_not_jump(cx: &mut TestAppContext) {
+    let (view, cx) = host(
+        &[("x", "asked"), ("a", "judged"), ("b", "judged")],
+        false,
+        cx,
+    );
+    let before = after(cx);
+    set(
+        &view,
+        &[("x", "asked"), ("a", "asked"), ("b", "judged")],
+        cx,
+    );
+    advance(cx, PANEL / 2);
+    let (left, came, total) = (height("rows-1-a", cx), height("rows-0-a", cx), after(cx));
+    assert!(
+        0. < left && left < ROW && 0. < came && came < ROW,
+        "mid-way"
+    );
+
+    set(
+        &view,
+        &[("x", "asked"), ("a", "judged"), ("b", "judged")],
+        cx,
+    );
+    let (back, away, now) = (height("rows-1-a", cx), height("rows-0-a", cx), after(cx));
+    assert!(
+        (back - left).abs() < 2. && (away - came).abs() < 2. && (now - total).abs() < 2.,
+        "nothing jumps when it turns back: {left}/{back}, {came}/{away}, {total}/{now}"
+    );
+    let totals = trace(cx, after);
+    assert!(
+        totals.iter().all(|total| (total - before).abs() < 2.),
+        "{totals:?}"
+    );
+    assert!(!shown("rows-0-a", cx), "it left the group it had reached");
+    assert!((height("rows-1-a", cx) - ROW).abs() < 0.5, "and is home");
     assert_eq!(pending_frames(cx), 0);
 }
 
