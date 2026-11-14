@@ -72,8 +72,8 @@ pub use disclosure::Disclosure;
 pub use drawer::{Drawer, Side};
 pub use dropdown::{Align, Dropdown, MenuItem};
 pub use field::{Field, StyledField, field_style, follow_theme};
-pub use group::{Group, Grouped};
 pub use filter_chips::{FilterChip, FilterChips};
+pub use group::{Group, Grouped};
 pub use icons::{Icon, Icons, icon};
 pub use identity::{Identity, identity};
 pub use interact::{
