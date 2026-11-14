@@ -42,6 +42,7 @@ const COMPACT_LIST: f32 = 220.;
 /// How the pill of a compact select is drawn for the option chosen: a fill, an ink and a border,
 /// all read from the palette of now so that they follow the theme.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Tone {
     /// The field's own look: the value says nothing more than itself.
     Outline,
@@ -88,7 +89,10 @@ impl Tone {
     }
 }
 
-/// The three colours of a pill.
+/// The three colours of a pill. Not [`tint`](crate::tint): that one fades whenever its target
+/// colour changes, a theme's cross-fade included, which would lag a frame behind the window's own.
+/// A pill fades only when its tone changes, so it is keyed on the [`Tone`] and mixes the palette
+/// of now.
 #[derive(Clone, Copy)]
 struct Shades {
     fill: Hsla,
@@ -380,8 +384,12 @@ impl RenderOnce for Select {
         if compact {
             crate::seen::note_colour(&part(&self.id, "pill"), pill.fill);
         }
+        let ring_id = part(&self.id, "ring");
         let field = hoverable(field, move |d, hover| {
             let on = if open { 1.0 } else { hover * enabled };
+            if compact {
+                crate::seen::note(&ring_id, on);
+            }
             d.border_color(mix(line, p.focus_line, on))
         });
         let close = set_open.clone();
