@@ -6,10 +6,11 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use gpui_kit::ElementId;
+use gpui_kit::{ElementId, Hsla};
 
 thread_local! {
     static SEEN: RefCell<HashMap<ElementId, f32>> = RefCell::new(HashMap::new());
+    static COLOURS: RefCell<HashMap<ElementId, Hsla>> = RefCell::new(HashMap::new());
 }
 
 /// Records that `id` was drawn `value` (0 to 1) along its state.
@@ -21,4 +22,15 @@ pub(crate) fn note(id: &ElementId, value: f32) {
 #[doc(hidden)]
 pub fn seen(id: impl Into<ElementId>) -> Option<f32> {
     SEEN.with(|seen| seen.borrow().get(&id.into()).copied())
+}
+
+/// Records that `id` was drawn in `colour`: a fill that moves between two tones.
+pub(crate) fn note_colour(id: &ElementId, colour: Hsla) {
+    COLOURS.with(|seen| seen.borrow_mut().insert(id.clone(), colour));
+}
+
+/// The colour `id` was last drawn in, `None` if it never was on this thread.
+#[doc(hidden)]
+pub fn colour(id: impl Into<ElementId>) -> Option<Hsla> {
+    COLOURS.with(|seen| seen.borrow().get(&id.into()).copied())
 }
