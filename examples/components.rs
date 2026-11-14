@@ -615,17 +615,17 @@ impl Components {
                         Select::new(
                             format!("setting-{at}"),
                             [
-                                SelectOption::new("off", "Off")
-                                    .line("Never offered.")
+                                SelectOption::new("hidden", "Hidden")
+                                    .line("Never listed.")
                                     .tone(Tone::Outline),
-                                SelectOption::new("allowed", "Allowed")
-                                    .line("Offered without asking.")
+                                SelectOption::new("shown", "Shown")
+                                    .line("Always listed.")
                                     .tone(Tone::Ok),
-                                SelectOption::new("judged", "Judged")
-                                    .line("Decided case by case.")
+                                SelectOption::new("default", "Default")
+                                    .line("Listed when it matches.")
                                     .tone(Tone::Quiet),
-                                SelectOption::new("asked", "Asked")
-                                    .line("Always asks first.")
+                                SelectOption::new("pinned", "Pinned")
+                                    .line("Listed first.")
                                     .tone(Tone::Strong),
                             ],
                             self.settings[at],
@@ -654,7 +654,7 @@ impl Components {
                     [
                         FilterChip::new("all", "All", 3),
                         FilterChip::new("ticked", "Ticked", ticks),
-                        FilterChip::new("none", "Blocked", 0),
+                        FilterChip::new("none", "Empty", 0),
                     ],
                     self.filter,
                 )
