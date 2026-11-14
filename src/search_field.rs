@@ -11,8 +11,9 @@ use std::sync::Arc;
 
 use gpui_kit::base::input::{Input, InputEvent, InputState};
 use gpui_kit::{
-    App, Context, ElementId, Entity, Focusable, InteractiveElement, IntoElement, ParentElement,
-    RenderOnce, SharedString, StatefulInteractiveElement, Styled, Subscription, Window, div, px,
+    App, Context, ElementId, Entity, EntityId, Focusable, InteractiveElement, IntoElement,
+    ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Subscription,
+    Window, div, px,
 };
 
 use crate::button::Button;
@@ -26,11 +27,44 @@ use crate::theme::palette;
 const HEIGHT: f32 = 34.;
 /// The width of the clear button once it has unfolded: the icon button's.
 const CLEAR: f32 = 28.;
+/// The room between the text and the clear button.
+const GAP: f32 = 8.;
 
 /// Redraws the view that draws the field when its text or its focus changes (an `InputState`
-/// notifies only itself, and a keyed state notifies the view that drew it).
+/// notifies only itself, and a keyed state notifies the view that drew it). The input notifies on
+/// every blink of its caret too, which must not redraw the caller twice a second: only a change
+/// of the text or of the focus is passed on.
 struct Watch {
+    input: EntityId,
+    text: SharedString,
+    focused: bool,
     _changes: [Subscription; 2],
+}
+
+impl Watch {
+    fn new(input: &Entity<InputState>, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        Self {
+            input: input.entity_id(),
+            text: input.read(cx).value(),
+            focused: input.focus_handle(cx).contains_focused(window, cx),
+            _changes: [
+                cx.observe_in(input, window, Self::check),
+                cx.subscribe_in(input, window, |watch, input, _: &InputEvent, window, cx| {
+                    watch.check(input.clone(), window, cx)
+                }),
+            ],
+        }
+    }
+
+    fn check(&mut self, input: Entity<InputState>, window: &mut Window, cx: &mut Context<Self>) {
+        let text = input.read(cx).value();
+        let focused = input.focus_handle(cx).contains_focused(window, cx);
+        if text != self.text || focused != self.focused {
+            self.text = text;
+            self.focused = focused;
+            cx.notify();
+        }
+    }
 }
 
 #[derive(IntoElement)]
@@ -75,15 +109,13 @@ fn part(id: &ElementId, name: &'static str) -> ElementId {
 impl RenderOnce for SearchField {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = palette(cx);
-        let input = self.input.clone();
-        window.use_keyed_state(part(&self.id, "watch"), cx, |_, cx: &mut Context<Watch>| {
-            Watch {
-                _changes: [
-                    cx.observe(&input, |_, _, cx| cx.notify()),
-                    cx.subscribe(&input, |_, _, _: &InputEvent, cx| cx.notify()),
-                ],
-            }
+        let watch = window.use_keyed_state(part(&self.id, "watch"), cx, |window, cx| {
+            Watch::new(&self.input, window, cx)
         });
+        // The caller may hand the same id another input: it is the one to watch from now on.
+        if watch.read(cx).input != self.input.entity_id() {
+            watch.update(cx, |watch, cx| *watch = Watch::new(&self.input, window, cx));
+        }
         if let Some(placeholder) = self.placeholder
             && self.input.read(cx).presentation().placeholder() != &placeholder
         {
@@ -99,10 +131,13 @@ impl RenderOnce for SearchField {
         crate::seen::note(&part(&self.id, "clear"), shown);
         let clear = (shown > 0.0).then(|| {
             let input = self.input.clone();
+            // The gap before the button is part of what unfolds, so that it grows and shrinks
+            // with it instead of appearing at once.
             div()
                 .flex_none()
                 .overflow_hidden()
-                .w(px(CLEAR * shown))
+                .w(px((GAP + CLEAR) * shown))
+                .pl(px(GAP * shown))
                 .opacity(shown)
                 .child(
                     Button::icon(part(&self.id, "clear"), Icon::Close, "Clear")
@@ -125,7 +160,6 @@ impl RenderOnce for SearchField {
             .border_1()
             .flex()
             .items_center()
-            .gap(px(8.))
             .text_size(px(13.))
             .text_color(p.text)
             .on_key_down(move |event, window, cx| {
@@ -135,11 +169,19 @@ impl RenderOnce for SearchField {
                     input.update(cx, |input, cx| input.clean(window, cx));
                 }
             })
-            .child(icon(Icon::Search).size(px(13.)).text_color(p.faint))
+            .child(
+                icon(Icon::Search)
+                    .size(px(13.))
+                    .mr(px(8.))
+                    .text_color(p.faint),
+            )
             .child(div().flex_1().min_w_0().child(Input::new(&self.input)))
             .children(clear);
+        let ring_id = part(&self.id, "ring");
         hoverable(field, move |d, hover| {
-            d.border_color(mix(p.field_line, p.focus_line, hover.max(ring)))
+            let on = hover.max(ring);
+            crate::seen::note(&ring_id, on);
+            d.border_color(mix(p.field_line, p.focus_line, on))
         })
     }
 }
