@@ -14,10 +14,13 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui_kit::{
-    AnyElement, App, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    StatefulInteractiveElement, Styled, TestSupportExt, Transformation, Window, div, px, radians,
+    AnyElement, App, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    RenderOnce, SharedString, StatefulInteractiveElement, Styled, TestSupportExt, Transformation,
+    Window, div, px, radians,
 };
 
+use crate::color::mix;
+use crate::cut::tipped_when_cut;
 use crate::icons::{Icon, icon};
 use crate::interact::hoverable;
 use crate::reveal::presence;
@@ -164,6 +167,132 @@ impl RenderOnce for Unfolding {
                 part(&self.id, "body"),
                 open,
                 div().pl(px(26.)).pt(px(2.)).pb(space::XS).child(self.body),
+            ))
+    }
+}
+
+/// One line that stands for a set of rows or groups, and unfolds them under it: a dashed frame
+/// with a title, a faint detail (what is in the set) and a chevron at its end. It is the folded
+/// form of what it holds, so it unfolds by itself while the screen says
+/// [`unfolded_by`](Self::unfolded_by) something (a search found a row in it) and folds back when
+/// that stops, unless a click opened it.
+///
+/// Its parts, for a test: the line `<id>` (it says its hover, 0 to 1), its title `<id>-title`, its
+/// detail `<id>-detail`, its chevron `<id>-chevron` and what it holds `<id>-body`.
+#[derive(IntoElement)]
+pub struct Summary {
+    id: ElementId,
+    title: SharedString,
+    detail: Option<SharedString>,
+    open: bool,
+    forced: bool,
+    on_toggle: Option<OnToggle>,
+    body: Vec<AnyElement>,
+}
+
+impl Summary {
+    /// The row `id` saying `title`, unfolded by a click (`open`) or folded.
+    pub fn new(id: impl Into<ElementId>, title: impl Into<SharedString>, open: bool) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            detail: None,
+            open,
+            forced: false,
+            on_toggle: None,
+            body: Vec::new(),
+        }
+    }
+
+    /// What the set holds, in a few words, faint after the title. It is cut with its whole text
+    /// at hand.
+    pub fn detail(mut self, detail: impl Into<SharedString>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+
+    /// Whether the screen needs what is under the line to be seen now (a search found something
+    /// in it): it unfolds, and folds back when this turns false if no click opened it.
+    pub fn unfolded_by(mut self, found: bool) -> Self {
+        self.forced = found;
+        self
+    }
+
+    /// Called with the state a click on the line asks for.
+    pub fn on_toggle(mut self, f: impl Fn(bool, &mut Window, &mut App) + 'static) -> Self {
+        self.on_toggle = Some(Rc::new(f));
+        self
+    }
+}
+
+impl ParentElement for Summary {
+    fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
+        self.body.extend(elements);
+    }
+}
+
+impl RenderOnce for Summary {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let p = palette(cx);
+        let open = self.open || self.forced;
+        let asked = !self.open;
+        let mut line = div()
+            .id(self.id.clone())
+            .aria_expanded(open)
+            .w_full()
+            .px(space::MD)
+            .py(space::SM)
+            .flex()
+            .items_center()
+            .gap(space::SM)
+            .rounded(radius::LIST_ROW)
+            .border_1()
+            .border_dashed()
+            .border_color(p.line2)
+            .cursor_pointer()
+            .text_size(px(12.))
+            .child(
+                div()
+                    .id(part(&self.id, "title"))
+                    .aria_label(self.title.clone())
+                    .flex_none()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(self.title)
+                    .test_support(),
+            );
+        if let Some(detail) = self.detail {
+            let said = div()
+                .id(part(&self.id, "detail"))
+                .aria_label(detail.clone())
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .text_color(p.faint)
+                .child(detail.clone());
+            line = line.child(tipped_when_cut(said, detail, window, cx));
+        }
+        line =
+            line.child(div().flex_1())
+                .child(chevron(part(&self.id, "chevron"), open, window, cx));
+        if let Some(on_toggle) = self.on_toggle {
+            line = line.on_click(move |_, window, cx| on_toggle(asked, window, cx));
+        }
+        let line_id = self.id.clone();
+        let line = hoverable(line, move |d, t| {
+            seen::note(&line_id, t);
+            d.text_color(mix(p.mute, p.text, t)).bg(p.hover.opacity(t))
+        });
+        div()
+            .id(part(&self.id, "root"))
+            .w_full()
+            .flex()
+            .flex_col()
+            .child(line)
+            .child(presence(
+                part(&self.id, "body"),
+                open,
+                div().flex().flex_col().pt(space::SM).children(self.body),
             ))
     }
 }

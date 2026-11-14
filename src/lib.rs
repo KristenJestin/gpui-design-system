@@ -104,7 +104,7 @@ pub use tag::Tag;
 pub use theme::{Palette, Theme, palette};
 pub use toast::{Toast, ToastKind, ToastStack, toast};
 pub use typography::Type;
-pub use unfolding::Unfolding;
+pub use unfolding::{Summary, Unfolding};
 
 /// Initialises gpui-kit (which reads the system's reduced-motion setting), the bundled fonts and
 /// the theme, for the application `identity`: its first desktop source's when it offers one and
