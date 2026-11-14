@@ -72,11 +72,12 @@ impl RenderOnce for SetHere {
         let back = div()
             .id(part("reset"))
             .aria_label(self.reset_label.clone())
-            .cursor_pointer()
             .text_size(px(12.))
             .child(self.reset_label);
         let back = match self.on_reset {
-            Some(on_reset) => back.on_click(move |_: &ClickEvent, window, cx| on_reset(window, cx)),
+            Some(on_reset) => back
+                .cursor_pointer()
+                .on_click(move |_: &ClickEvent, window, cx| on_reset(window, cx)),
             None => back,
         };
         let line = div()

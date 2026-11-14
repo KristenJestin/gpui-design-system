@@ -104,7 +104,6 @@ impl RenderOnce for Disclosure {
             .flex()
             .items_center()
             .gap(space::XS)
-            .cursor_pointer()
             .text_size(px(12.))
             .child(chevron)
             .child(self.title);
@@ -124,7 +123,9 @@ impl RenderOnce for Disclosure {
             );
         }
         if let Some(on_toggle) = self.on_toggle {
-            line = line.on_click(move |_, window, cx| on_toggle(!open, window, cx));
+            line = line
+                .cursor_pointer()
+                .on_click(move |_, window, cx| on_toggle(!open, window, cx));
         }
         let line_id = self.id.clone();
         let line = hoverable(line, move |d, t| {

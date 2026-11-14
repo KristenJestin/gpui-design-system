@@ -192,12 +192,12 @@ impl RenderOnce for Tabs {
                         .child(count)
                         .test_support()
                 }));
-            if index != chosen {
-                element = element.cursor_pointer();
-                if let Some(on_choose) = on_choose {
-                    element = element
-                        .on_click(move |_: &ClickEvent, window, cx| on_choose(index, window, cx));
-                }
+            if index != chosen
+                && let Some(on_choose) = on_choose
+            {
+                element = element
+                    .cursor_pointer()
+                    .on_click(move |_: &ClickEvent, window, cx| on_choose(index, window, cx));
             }
             hoverable(element, move |d, hover| {
                 d.bg(p.hover.opacity(hover * (1. - near))).text_color(mix(

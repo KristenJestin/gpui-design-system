@@ -311,10 +311,11 @@ impl RenderOnce for Subpage {
             let mut back = div()
                 .id(part("back"))
                 .aria_label(self.label.clone())
-                .cursor_pointer()
                 .child(self.label.clone());
             if let Some(on_open) = on_open.clone().filter(|_| open) {
-                back = back.on_click(move |_, window, cx| on_open(None, window, cx));
+                back = back
+                    .cursor_pointer()
+                    .on_click(move |_, window, cx| on_open(None, window, cx));
             }
             let back = hoverable(back, move |d, hover| {
                 d.text_color(mix(p.faint, p.text, hover))

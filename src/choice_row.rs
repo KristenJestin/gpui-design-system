@@ -141,10 +141,11 @@ impl RenderOnce for ChoiceRow {
             .px(px(10.))
             .py(px(8.))
             .rounded(px(8.))
-            .border_1()
-            .cursor_pointer();
+            .border_1();
         if let Some(on_click) = self.on_click.clone() {
-            row = row.on_click(move |_, window, cx| on_click(window, cx));
+            row = row
+                .cursor_pointer()
+                .on_click(move |_, window, cx| on_click(window, cx));
         }
         let faint = self.faint;
         let label_of = move |id: ElementId, text: SharedString| {

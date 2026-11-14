@@ -207,13 +207,14 @@ impl RenderOnce for Segmented {
                 // Faded over HOVER as it becomes unavailable, and back: never at once.
                 let gone = fade(name(key), taken, HOVER, window, cx);
                 segment = segment.opacity(1.0 - UNAVAILABLE * gone);
-                if !disabled && !taken && index != chosen {
-                    segment = segment.cursor_pointer();
-                    if let Some(on_choose) = on_choose {
-                        segment = segment.on_click(move |_: &ClickEvent, window, cx| {
-                            on_choose(index, window, cx)
-                        });
-                    }
+                if !disabled
+                    && !taken
+                    && index != chosen
+                    && let Some(on_choose) = on_choose
+                {
+                    segment = segment
+                        .cursor_pointer()
+                        .on_click(move |_: &ClickEvent, window, cx| on_choose(index, window, cx));
                 }
                 if taken {
                     // It cannot be taken, so the pointer moves nothing on it.
