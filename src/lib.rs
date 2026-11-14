@@ -6,6 +6,7 @@
 //! of what an application is about: the application tells it its name and its look at [`init`].
 
 pub mod appearance;
+pub mod bulk_bar;
 pub mod button;
 pub mod card;
 pub mod choice_row;
@@ -54,6 +55,7 @@ pub mod unfolding;
 use gpui_kit::App;
 
 pub use appearance::{Appearance, DesktopTheme, Source};
+pub use bulk_bar::BulkBar;
 pub use button::{Badge, Button, ButtonKind, Tooltip, tipped};
 pub use card::{Block, Card};
 pub use choice_row::ChoiceRow;
