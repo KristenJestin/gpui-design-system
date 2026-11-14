@@ -9,95 +9,97 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// How many lines before a click, and after it, the cursor may be: a chain of builder calls.
-const BEFORE: usize = 16;
+const BEFORE: usize = 8;
 const AFTER: usize = 3;
 
-/// A click that is no control: the source file, a fragment of its line, and why it needs no hand.
+/// A click that is no control: the source file, the whole trimmed line, and why it needs no hand.
+/// A line is matched whole and each must be the only one of its file: a new clickable element
+/// of the same shape is not excused by it.
 const NOT_CONTROLS: &[(&str, &str, &str)] = &[
     (
         "src/button.rs",
-        "on_mouse_down(MouseButton::Left, move |_, _, cx| {",
-        "hides the tooltip of an element that is no button itself (`tipped`) or of a `Button`, which sets its own hand",
+        "button = button.on_mouse_down(MouseButton::Left, move |_, _, cx| {",
+        "hides the tooltip of a `Button` on press: the button sets its own hand",
+    ),
+    (
+        "src/button.rs",
+        ".on_mouse_down(MouseButton::Left, move |_, _, cx| {",
+        "hides the tooltip of `tipped`, an element that is no button, on press",
     ),
     (
         "src/dropdown.rs",
-        "on_mouse_down(MouseButton::Left, move |_, window, cx| dismiss(window, cx))",
+        ".on_mouse_down(MouseButton::Left, move |_, window, cx| dismiss(window, cx))",
         "the scrim behind an open list: a click outside dismisses it, it is no control",
     ),
     (
         "src/modal.rs",
-        "on_mouse_down(MouseButton::Left, move |_, window, cx| on_scrim(window, cx))",
+        ".on_mouse_down(MouseButton::Left, move |_, window, cx| on_scrim(window, cx))",
         "the scrim behind a modal: a click outside dismisses it, it is no control",
     ),
     (
         "src/drawer.rs",
-        "on_click(cx.listener(|this, _, _, cx| this.close(cx)))",
+        ".on_click(cx.listener(|this, _, _, cx| this.close(cx)))",
         "the scrim behind a drawer: a click outside dismisses it, it is no control",
     ),
     (
+        "src/interact.rs",
+        "element.on_mouse_down(MouseButton::Navigate(direction), move |_, window, cx| {",
+        "the mouse's back and forward buttons dismiss an overlay: no pointer to show",
+    ),
+    (
+        "src/interact.rs",
+        ".on_mouse_down(MouseButton::Left, move |_, _, cx| {",
+        "the tooltip state's rest on press: the element it serves sets its own hand",
+    ),
+    (
         "src/confirm.rs",
-        "on_click(move |_, window, cx| {",
+        ".on_click(move |_, window, cx| {",
         "a call on a `Button`, which sets its own hand while it can act",
     ),
     (
         "src/page.rs",
-        "on_click(move |_, window, cx| on_click(window, cx))",
+        ".on_click(move |_, window, cx| on_click(window, cx));",
         "a call on a `Button`, which sets its own hand while it can act",
     ),
     (
         "src/search_field.rs",
-        "on_click(move |_, window, cx| {",
+        ".on_click(move |_, window, cx| {",
         "a call on a `Button`, which sets its own hand while it can act",
     ),
     (
         "src/modal.rs",
-        "on_click(move |_, window, cx| on_close_button(window, cx))",
+        ".on_click(move |_, window, cx| on_close_button(window, cx)),",
         "a call on a `Button`, which sets its own hand while it can act",
     ),
     (
         "src/modal.rs",
-        "on_click(move |_, window, cx| on_cancel(window, cx))",
+        ".on_click(move |_, window, cx| on_cancel(window, cx)),",
         "a call on a `Button`, which sets its own hand while it can act",
     ),
     (
         "src/bulk_bar.rs",
-        "clear.on_click(",
+        "clear = clear.on_click(move |_, window, cx| on_clear(window, cx));",
         "a call on a `Button`, which sets its own hand while it can act",
     ),
     (
         "src/toast.rs",
-        "on_click(move |_, window, cx| {",
+        ".on_click(move |_, window, cx| {",
         "a call on a `Button`, which sets its own hand while it can act",
     ),
     (
         "src/menu.rs",
-        "on_click(cx.listener(|this, _, window, cx| this.toggle(window, cx)))",
+        ".on_click(cx.listener(|this, _, window, cx| this.toggle(window, cx)));",
         "a call on a `Button`, which sets its own hand while it can act",
     ),
     (
         "src/menu.rs",
-        "MenuItem::new(entry.id.clone(), entry.label.clone()).on_click(",
+        "MenuItem::new(entry.id.clone(), entry.label.clone()).on_click(move |window, cx| {",
         "a call on a `MenuItem`, which sets its own hand while it can act",
     ),
     (
         "src/subpage.rs",
         "row.on_click(move |_, window, cx| on_open(Some(key.clone()), window, cx))",
         "a call on a `ListRow`, which sets its own hand while it can act",
-    ),
-    (
-        "src/choice_row.rs",
-        "on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())",
-        "keeps a click inside the row's field from toggling the row",
-    ),
-    (
-        "src/interact.rs",
-        "on_mouse_down(MouseButton::Navigate(direction)",
-        "the mouse's back and forward buttons dismiss an overlay: no pointer to show",
-    ),
-    (
-        "src/interact.rs",
-        "on_mouse_down(MouseButton::Left, move |_, _, cx| {",
-        "the tooltip state's rest on press: the element it serves sets its own hand",
     ),
 ];
 
@@ -126,7 +128,7 @@ fn without_a_cursor(file: &str, source: &str) -> Vec<(usize, String)> {
         .filter(|(_, line)| {
             !NOT_CONTROLS
                 .iter()
-                .any(|(path, fragment, _)| file.ends_with(path) && line.contains(fragment))
+                .any(|(path, whole, _)| file.ends_with(path) && line.trim() == *whole)
         })
         .filter(|(at, _)| {
             let from = at.saturating_sub(1 + BEFORE);
@@ -182,6 +184,15 @@ fn a_comment_a_stopped_click_and_a_listed_scrim_are_not() {
 }
 
 #[test]
+fn an_exception_excuses_its_own_file_only() {
+    let listed = "div()\n    .on_click(move |_, window, cx| {";
+    assert_eq!(without_a_cursor("src/confirm.rs", listed).len(), 0);
+    let other = "div()\n    .on_click(move |_, window, cx| {\n        a();\n    })\n    .on_click(move |_, window, cx| {";
+    // The shape is listed, but a file that is not the listed one gets no excuse.
+    assert_eq!(without_a_cursor("src/new.rs", other).len(), 2);
+}
+
+#[test]
 fn a_cursor_far_from_the_click_does_not_count() {
     let far = format!(
         "div().cursor_pointer()\n{}.on_click(f)",
@@ -213,14 +224,18 @@ fn every_interactive_component_sets_the_pointer_cursor() {
 }
 
 #[test]
-fn every_exception_still_names_a_line_of_its_file() {
+fn every_exception_names_exactly_one_line_of_its_file() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    for (path, fragment, reason) in NOT_CONTROLS {
+    for (path, whole, reason) in NOT_CONTROLS {
         assert!(!reason.is_empty());
         let source = fs::read_to_string(root.join(path)).unwrap();
-        assert!(
-            source.contains(fragment),
-            "{path} no longer has `{fragment}`: drop its exception"
+        let found = code(&source)
+            .into_iter()
+            .filter(|(_, line)| line.trim() == *whole)
+            .count();
+        assert_eq!(
+            found, 1,
+            "{path} has {found} lines `{whole}`: an exception names one line, drop or narrow it"
         );
     }
 }
