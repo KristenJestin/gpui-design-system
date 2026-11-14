@@ -116,6 +116,7 @@ impl RenderOnce for Checkbox {
         );
         crate::seen::note(&part(&self.id, "mark"), on);
         let mark_id = part(&self.id, "mark");
+        let hover_id = part(&self.id, "hover");
         let state = self.state;
         let mut root = div()
             .id(self.id.clone())
@@ -143,6 +144,7 @@ impl RenderOnce for Checkbox {
                 .test_support()
         });
         hoverable(root, move |d, hover| {
+            crate::seen::note(&hover_id, hover);
             let mark = div()
                 .id(mark_id)
                 .relative()

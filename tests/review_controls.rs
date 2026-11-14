@@ -6,8 +6,9 @@ mod common;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
+use std::time::Duration;
 
-use common::{advance, init, pending_frames};
+use common::{advance, count_redraws, init, pending_frames};
 use gpui_design_system::motion::{ENTER, HOVER, PANEL};
 use gpui_design_system::seen::{colour, seen};
 use gpui_design_system::{
@@ -17,31 +18,58 @@ use gpui_design_system::{
 use gpui_kit::base::input::InputState;
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
-    AppContext as _, Context, Entity, IntoElement, ParentElement, Render, Styled, TestAppContext,
-    VisualTestContext, Window, div, px,
+    AppContext as _, Context, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
+    Styled, TestAppContext, VisualTestContext, Window, div, px,
 };
 
+/// A search field in a host that counts the Escapes that reach it, as a dialog around the field
+/// would; `which` says which of its two inputs the field is given.
 struct Search {
     input: Entity<InputState>,
+    other: Entity<InputState>,
+    which: usize,
+    escapes: usize,
 }
 
 impl Render for Search {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        div().w(px(400.)).p(px(12.)).child(
-            SearchField::new("find", &self.input, "Search items")
-                .placeholder("Search 35 items by name"),
-        )
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let this = cx.entity().downgrade();
+        let input = if self.which == 0 {
+            &self.input
+        } else {
+            &self.other
+        };
+        div()
+            .w(px(400.))
+            .p(px(12.))
+            .on_key_down(move |event, _, cx| {
+                if event.keystroke.key == "escape" {
+                    this.update(cx, |this, _| this.escapes += 1).ok();
+                }
+            })
+            .child(
+                SearchField::new("find", input, "Search items")
+                    .placeholder("Search 35 items by name"),
+            )
     }
 }
 
 fn search(cx: &mut TestAppContext) -> (Entity<Search>, &mut VisualTestContext) {
     init(cx);
-    let (view, cx) = cx.add_window_view(|window, cx| Search {
-        input: cx.new(|cx| {
-            let mut input = InputState::new(window, cx);
-            follow_theme(&mut input, cx);
-            input
-        }),
+    let (view, cx) = cx.add_window_view(|window, cx| {
+        let mut made = || {
+            cx.new(|cx| {
+                let mut input = InputState::new(window, cx);
+                follow_theme(&mut input, cx);
+                input
+            })
+        };
+        Search {
+            input: made(),
+            other: made(),
+            which: 0,
+            escapes: 0,
+        }
     });
     cx.update(|window, cx| window.render_frame(cx));
     (view, cx)
@@ -422,4 +450,178 @@ fn a_compact_select_takes_the_tone_of_its_value(cx: &mut TestAppContext) {
     advance(cx, PANEL * 2);
     assert_eq!(colour("mode-pill"), Some(Tone::Strong.fill(&p)));
     assert_eq!(pending_frames(cx), 0);
+}
+
+fn focus(view: &Entity<Search>, cx: &mut VisualTestContext) {
+    let input = view.read_with(cx, |this, _| this.input.clone());
+    cx.update(|window, cx| input.update(cx, |input, cx| input.focus(window, cx)));
+    cx.update(|window, cx| window.render_frame(cx));
+}
+
+#[gpui_kit::test]
+fn a_blinking_cursor_does_not_redraw_the_caller(cx: &mut TestAppContext) {
+    let (view, cx) = search(cx);
+    focus(&view, cx);
+    advance(cx, HOVER * 3);
+    let redraws = count_redraws(&view, cx);
+    advance(cx, Duration::from_secs(3));
+    assert_eq!(
+        redraws.get(),
+        0,
+        "the caret blinks six times: neither the text nor the focus changed"
+    );
+    type_in(&view, "a", cx);
+    assert!(redraws.get() > 0, "a change of the text does redraw it");
+}
+
+#[gpui_kit::test]
+fn a_change_of_focus_redraws_the_caller(cx: &mut TestAppContext) {
+    let (view, cx) = search(cx);
+    let redraws = count_redraws(&view, cx);
+    focus(&view, cx);
+    assert!(redraws.get() > 0, "the focus ring has to move");
+}
+
+#[gpui_kit::test]
+fn a_search_field_watches_the_input_it_is_given_now(cx: &mut TestAppContext) {
+    let (view, cx) = search(cx);
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            this.which = 1;
+            cx.notify();
+        })
+    });
+    cx.update(|window, cx| window.render_frame(cx));
+    let other = view.read_with(cx, |this, _| this.other.clone());
+    cx.update(|window, cx| other.update(cx, |input, cx| input.set_value("brow", window, cx)));
+    cx.update(|window, cx| window.render_frame(cx));
+    advance(cx, PANEL * 2);
+    assert!(listed("find-clear", cx), "the new input's text shows it");
+}
+
+#[gpui_kit::test]
+fn escape_on_an_empty_search_field_reaches_the_dialog(cx: &mut TestAppContext) {
+    let (view, cx) = search(cx);
+    focus(&view, cx);
+    cx.update(|window, cx| window.press("escape", cx));
+    assert_eq!(
+        view.read_with(cx, |this, _| this.escapes),
+        1,
+        "nothing to clear: Escape goes on"
+    );
+    type_in(&view, "brow", cx);
+    cx.update(|window, cx| window.press("escape", cx));
+    assert_eq!(value(&view, cx), "");
+    assert_eq!(
+        view.read_with(cx, |this, _| this.escapes),
+        1,
+        "clearing takes the Escape"
+    );
+}
+
+#[gpui_kit::test]
+fn a_search_field_border_fades_its_hover(cx: &mut TestAppContext) {
+    let (_, cx) = search(cx);
+    assert_eq!(seen("find-ring"), Some(0.0));
+    cx.update(|window, cx| window.hover("find", cx));
+    advance(cx, HOVER / 3);
+    let part = seen("find-ring").unwrap();
+    assert!(0.0 < part && part < 1.0, "the hover fades in: {part}");
+    advance(cx, HOVER * 2);
+    assert_eq!(seen("find-ring"), Some(1.0));
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn a_search_field_focus_ring_fades_in_and_out(cx: &mut TestAppContext) {
+    let (view, cx) = search(cx);
+    focus(&view, cx);
+    advance(cx, HOVER / 3);
+    let part = seen("find-ring").unwrap();
+    assert!(0.0 < part && part < 1.0, "the ring fades in: {part}");
+    advance(cx, HOVER * 2);
+    assert_eq!(seen("find-ring"), Some(1.0));
+    assert_eq!(pending_frames(cx), 0);
+    cx.update(|window, cx| window.blur(cx));
+    advance(cx, HOVER / 3);
+    let part = seen("find-ring").unwrap();
+    assert!(0.0 < part && part < 1.0, "and fades out: {part}");
+    advance(cx, HOVER * 2);
+    assert_eq!(seen("find-ring"), Some(0.0));
+}
+
+#[gpui_kit::test]
+fn with_reduced_motion_the_clear_button_jumps(cx: &mut TestAppContext) {
+    let (view, cx) = search(cx);
+    cx.update(|_, cx| cx.set_reduce_motion(true));
+    type_in(&view, "brow", cx);
+    assert_eq!(seen("find-clear"), Some(1.0));
+    assert!(listed("find-clear", cx));
+    type_in(&view, "", cx);
+    assert!(!listed("find-clear", cx), "gone at once");
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn with_reduced_motion_a_chip_jumps(cx: &mut TestAppContext) {
+    let (_, cx) = chips(0, cx);
+    cx.update(|_, cx| cx.set_reduce_motion(true));
+    cx.update(|window, cx| window.click("show-open", cx));
+    cx.update(|window, cx| window.render_frame(cx));
+    assert_eq!(seen("show-open"), Some(1.0));
+    assert_eq!(seen("show-all"), Some(0.0));
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn with_reduced_motion_a_checkbox_mark_jumps(cx: &mut TestAppContext) {
+    let (view, cx) = boxes(CheckState::Empty, cx);
+    cx.update(|_, cx| cx.set_reduce_motion(true));
+    turn(&view, CheckState::Checked, cx);
+    assert_eq!(seen("pick-mark"), Some(1.0));
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn a_checkbox_border_fades_its_hover(cx: &mut TestAppContext) {
+    let (_, cx) = boxes(CheckState::Empty, cx);
+    assert_eq!(seen("pick-hover"), Some(0.0));
+    cx.update(|window, cx| window.hover("pick", cx));
+    advance(cx, HOVER / 3);
+    let part = seen("pick-hover").unwrap();
+    assert!(0.0 < part && part < 1.0, "the border moves: {part}");
+    advance(cx, HOVER * 2);
+    assert_eq!(seen("pick-hover"), Some(1.0));
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn with_reduced_motion_a_pill_changes_tone_at_once(cx: &mut TestAppContext) {
+    let (view, cx) = pills(1, cx);
+    cx.update(|_, cx| cx.set_reduce_motion(true));
+    cx.update(|_, cx| {
+        view.update(cx, |this, cx| {
+            this.chosen = 2;
+            cx.notify();
+        })
+    });
+    cx.update(|window, cx| window.render_frame(cx));
+    let p = cx.update(|_, cx| palette(cx));
+    assert_eq!(colour("mode-pill"), Some(Tone::Strong.fill(&p)));
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn a_pill_border_fades_its_hover_and_holds_while_open(cx: &mut TestAppContext) {
+    let (_, cx) = pills(0, cx);
+    assert_eq!(seen("mode-ring"), Some(0.0));
+    cx.update(|window, cx| window.hover("mode", cx));
+    advance(cx, HOVER / 3);
+    let part = seen("mode-ring").unwrap();
+    assert!(0.0 < part && part < 1.0, "the border moves: {part}");
+    advance(cx, HOVER * 2);
+    assert_eq!(seen("mode-ring"), Some(1.0));
+    cx.update(|window, cx| window.click("mode", cx));
+    advance(cx, ENTER * 2);
+    assert_eq!(seen("mode-ring"), Some(1.0), "open: the focus colour holds");
 }
