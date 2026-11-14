@@ -6,6 +6,7 @@
 //! of what an application is about: the application tells it its name and its look at [`init`].
 
 pub mod appearance;
+pub mod bulk_bar;
 pub mod button;
 pub mod card;
 pub mod checkbox;
@@ -13,14 +14,17 @@ pub mod choice_row;
 pub mod color;
 pub mod confirm;
 pub mod cut;
+pub mod diff;
 pub mod disclosure;
 pub mod drawer;
 pub mod dropdown;
 pub mod field;
 pub mod filter_chips;
 pub mod fuzzy;
+pub mod group;
 pub mod icons;
 pub mod identity;
+mod ids;
 mod interact;
 pub mod layer;
 pub mod lines;
@@ -51,21 +55,25 @@ pub mod tag;
 pub mod theme;
 pub mod toast;
 pub mod typography;
+pub mod unfolding;
 
 use gpui_kit::App;
 
 pub use appearance::{Appearance, DesktopTheme, Source};
+pub use bulk_bar::BulkBar;
 pub use button::{Badge, Button, ButtonKind, Tooltip, tipped};
 pub use card::{Block, Card};
 pub use checkbox::{CheckState, Checkbox};
 pub use choice_row::ChoiceRow;
 pub use confirm::Confirm;
 pub use cut::{QUOTED_CHARS, quoted, quoted_title, tipped_when_cut};
+pub use diff::{DiffLine, DiffLines};
 pub use disclosure::Disclosure;
 pub use drawer::{Drawer, Side};
 pub use dropdown::{Align, Dropdown, MenuItem};
 pub use field::{Field, StyledField, field_style, follow_theme};
 pub use filter_chips::{FilterChip, FilterChips};
+pub use group::{Group, Grouped};
 pub use icons::{Icon, Icons, icon};
 pub use identity::{Identity, identity};
 pub use interact::{
@@ -103,6 +111,7 @@ pub use tag::Tag;
 pub use theme::{Palette, Theme, palette};
 pub use toast::{Toast, ToastKind, ToastStack, toast};
 pub use typography::Type;
+pub use unfolding::{Summary, Unfolding};
 
 /// Initialises gpui-kit (which reads the system's reduced-motion setting), the bundled fonts and
 /// the theme, for the application `identity`: its first desktop source's when it offers one and
