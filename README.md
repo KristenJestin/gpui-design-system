@@ -126,6 +126,7 @@ cargo test
 cargo test --no-default-features
 cargo run --example gallery
 cargo run --example components
+cargo run --example list_parts
 ```
 
 The tests run on GPUI's test platform and open no window.
