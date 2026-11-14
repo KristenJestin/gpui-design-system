@@ -8,7 +8,7 @@
 use std::rc::Rc;
 
 use gpui_kit::{
-    AnyElement, App, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    AnyElement, App, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels,
     RenderOnce, SharedString, StatefulInteractiveElement, Styled, TestSupportExt, Window, div, px,
 };
 
@@ -24,6 +24,7 @@ type OnClear = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 pub struct BulkBar {
     id: ElementId,
     selected: usize,
+    gap: f32,
     actions: Vec<AnyElement>,
     on_clear: Option<OnClear>,
 }
@@ -34,9 +35,16 @@ impl BulkBar {
         Self {
             id: id.into(),
             selected,
+            gap: 0.0,
             actions: Vec::new(),
             on_clear: None,
         }
+    }
+
+    /// The gap the parent flex puts between its children, which comes and goes with the bar.
+    pub fn gap(mut self, gap: Pixels) -> Self {
+        self.gap = f32::from(gap);
+        self
     }
 
     /// An action on the selected rows, after the count: a [`Button`], or anything of its size.
@@ -65,6 +73,7 @@ impl RenderOnce for BulkBar {
         presence_of(self.id, line, move |count| {
             Shown { count, ..bar }.into_any_element()
         })
+        .gap(px(self.gap))
     }
 }
 
@@ -86,8 +95,7 @@ impl RenderOnce for Shown {
         if let Some(on_clear) = self.on_clear {
             clear = clear.on_click(move |_, window, cx| on_clear(window, cx));
         }
-        // The gap under the bar is part of it, so that it folds away with it.
-        div().w_full().pb(space::SM).child(
+        div().w_full().child(
             div()
                 .w_full()
                 .px(space::SM)

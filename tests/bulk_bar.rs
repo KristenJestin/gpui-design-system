@@ -16,6 +16,8 @@ use gpui_kit::{
     TestAppContext, TestSupportExt as _, VisualTestContext, Window, div, px,
 };
 
+const GAP: f32 = 12.;
+
 struct Host {
     selected: usize,
     set: Rc<Cell<usize>>,
@@ -29,8 +31,10 @@ impl Render for Host {
             .w(px(500.))
             .flex()
             .flex_col()
+            .gap(px(GAP))
             .child(
                 BulkBar::new("bar", self.selected)
+                    .gap(px(GAP))
                     .action(Button::secondary("bar-off", "Off").on_click({
                         let set = set.clone();
                         move |_, _, _| set.set(set.get() + 1)
@@ -151,5 +155,56 @@ fn the_bulk_bar_jumps_with_reduced_motion(cx: &mut TestAppContext) {
     select(&view, 0, cx);
     advance(cx, Duration::from_millis(16));
     assert_eq!(after(cx), none, "and gone at once");
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn the_space_the_bulk_bar_takes_gap_included_grows_over_the_fold(cx: &mut TestAppContext) {
+    let (view, cx) = host(0, false, cx);
+    let none = after(cx);
+
+    select(&view, 2, cx);
+    let spaces: Vec<f32> = std::iter::once(after(cx))
+        .chain((0..(PANEL * 2).as_millis() / 16).map(|_| {
+            advance(cx, Duration::from_millis(16));
+            after(cx)
+        }))
+        .collect();
+    assert!(
+        (spaces[0] - none).abs() < 2.,
+        "the gap does not appear at once: {spaces:?}"
+    );
+    assert!(
+        spaces.windows(2).all(|pair| pair[0] <= pair[1]),
+        "{spaces:?}"
+    );
+    assert!(
+        spaces
+            .iter()
+            .any(|space| none < *space && *space < spaces[spaces.len() - 1])
+    );
+    let bar = cx.update(|window, _| f32::from(window.find("bar").bounds().size.height));
+    let full = after(cx);
+    assert!(
+        (full - none - (bar + GAP)).abs() < 1.,
+        "{full}: the bar {bar} and its gap"
+    );
+
+    select(&view, 0, cx);
+    let spaces: Vec<f32> = std::iter::once(after(cx))
+        .chain((0..(PANEL * 2).as_millis() / 16).map(|_| {
+            advance(cx, Duration::from_millis(16));
+            after(cx)
+        }))
+        .collect();
+    assert!(
+        (spaces[0] - full).abs() < 2.,
+        "nor does it vanish at once: {spaces:?}"
+    );
+    assert!(
+        spaces.windows(2).all(|pair| pair[0] >= pair[1]),
+        "{spaces:?}"
+    );
+    assert_eq!(after(cx), none, "no jump at the end");
     assert_eq!(pending_frames(cx), 0);
 }
