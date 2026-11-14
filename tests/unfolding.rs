@@ -8,13 +8,13 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use common::{advance, init, pending_frames};
-use gpui_design_system::Unfolding;
-use gpui_design_system::motion::{HOVER, PANEL};
+use gpui_design_system::motion::{HOVER, MODAL, PANEL};
+use gpui_design_system::{Modal, Unfolding};
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
-    Context, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
-    StatefulInteractiveElement as _, Styled, TestAppContext, TestSupportExt as _,
-    VisualTestContext, Window, div, px,
+    Context, Entity, InteractiveElement as _, IntoElement, ParentElement, Render, ScrollDelta,
+    SharedString, StatefulInteractiveElement as _, Styled, TestAppContext, TestSupportExt as _,
+    VisualTestContext, Window, div, point, px, size,
 };
 
 const SHORT: &str = "Open a URL in the active tab.";
@@ -24,20 +24,31 @@ const LONG: &str = "Evaluate a script in the page and return what it returned. T
 
 struct Host {
     open: bool,
-    width: f32,
+    wide: bool,
     text: &'static str,
     pressed: Rc<Cell<usize>>,
+}
+
+/// Rows of the dialog above and below the one under test: more than the window holds, so that
+/// the dialog's body scrolls.
+fn filler(prefix: &'static str, count: usize) -> impl Iterator<Item = gpui_kit::AnyElement> {
+    (0..count).map(move |at| {
+        div()
+            .id(SharedString::from(format!("{prefix}-{at}")))
+            .h(px(30.))
+            .child(format!("row {at}"))
+            .test_support()
+            .into_any_element()
+    })
 }
 
 impl Render for Host {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity().downgrade();
         let pressed = self.pressed.clone();
-        div()
-            .id("scroller")
-            .w(px(self.width))
-            .h(px(120.))
-            .overflow_y_scroll()
+        let modal = Modal::new("dialog", "Review")
+            .open(true)
+            .children(filler("above", 6))
             .child(
                 Unfolding::new("row", self.open)
                     .leading(div().id("box").size(px(14.)).test_support())
@@ -61,10 +72,14 @@ impl Render for Host {
                     }),
             )
             .child(div().id("after").h(px(20.)).test_support())
+            .children(filler("below", 20))
+            .action(div().id("dialog-action").child("Accept"));
+        if self.wide { modal.wide() } else { modal }
     }
 }
 
-fn host<'a>(
+/// The dialog drawn once, in a window too small for its body, nothing advanced yet.
+fn drawn<'a>(
     open: bool,
     text: &'static str,
     reduce: bool,
@@ -74,11 +89,34 @@ fn host<'a>(
     cx.update(|cx| cx.set_reduce_motion(reduce));
     let (view, cx) = cx.add_window_view(move |_, _| Host {
         open,
-        width: 240.,
+        wide: false,
         text,
         pressed: Rc::default(),
     });
+    cx.simulate_resize(size(px(900.), px(600.)));
     cx.update(|window, cx| window.render_frame(cx));
+    (view, cx)
+}
+
+/// The dialog once it has come in, its body scrolled a little: the rows under test are in sight
+/// and what is below them has room to move.
+fn host<'a>(
+    open: bool,
+    text: &'static str,
+    reduce: bool,
+    cx: &'a mut TestAppContext,
+) -> (Entity<Host>, &'a mut VisualTestContext) {
+    let (view, cx) = drawn(open, text, reduce, cx);
+    advance(cx, MODAL * 2);
+    let top = |cx: &mut VisualTestContext| {
+        cx.update(|window, _| f32::from(window.find("above-2").bounds().origin.y))
+    };
+    let unscrolled = top(cx);
+    cx.update(|window, cx| {
+        window.scroll("above-2", ScrollDelta::Pixels(point(px(0.), px(-60.))), cx)
+    });
+    cx.update(|window, cx| window.render_frame(cx));
+    assert!(top(cx) < unscrolled, "the dialog's body is scrolled");
     (view, cx)
 }
 
@@ -166,7 +204,7 @@ fn an_unfolded_row_measures_wrapped_lines(cx: &mut TestAppContext) {
 
     // The width changes while it is open: the lines wrap again and what is below follows.
     view.update(cx, |this, cx| {
-        this.width = 600.;
+        this.wide = true;
         cx.notify();
     });
     redraw(cx);
@@ -200,14 +238,73 @@ fn a_click_on_the_row_s_own_controls_does_not_toggle_it(cx: &mut TestAppContext)
     assert!(!view.read_with(cx, |this, _| this.open), "nor is the box");
 }
 
+/// How far under the row what follows it is: the dialog rising into place moves both alike.
+fn room_below(cx: &mut VisualTestContext) -> f32 {
+    cx.update(|window, _| {
+        f32::from(window.find("after").bounds().origin.y - window.find("row").bounds().origin.y)
+    })
+}
+
 #[gpui_kit::test]
 fn an_unfolding_row_first_drawn_open_is_simply_open(cx: &mut TestAppContext) {
-    let (_, cx) = host(true, SHORT, false, cx);
-    assert_eq!(value("row-chevron"), Some(0.0));
+    let (_, cx) = drawn(true, SHORT, false, cx);
     cx.update(|window, _| assert!(window.try_find("text").is_some()));
-    let first = pending_frames(cx);
+    let (room, turned) = (room_below(cx), value("row-chevron"));
+    assert_eq!(turned, Some(0.0));
+    // The two frames after its first draw move nothing of it.
+    for _ in 0..2 {
+        advance(cx, Duration::from_millis(16));
+        assert_eq!(room_below(cx), room, "the content did not unfold again");
+        assert_eq!(value("row-chevron"), turned, "the chevron did not turn");
+    }
+    advance(cx, MODAL * 2);
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn an_unfolding_row_folded_back_mid_way_does_not_jump(cx: &mut TestAppContext) {
+    let (_, cx) = host(false, SHORT, false, cx);
+    let closed = after(cx);
+    cx.update(|window, cx| window.click("row", cx));
+    redraw(cx);
+    advance(cx, PANEL / 2);
+    let (opened, turned) = (after(cx), value("row-chevron").unwrap());
+    assert!(closed < opened && 0. < turned && turned < 1., "mid-way");
+
+    cx.update(|window, cx| window.click("row", cx));
+    redraw(cx);
+    let (now, turning) = (after(cx), value("row-chevron").unwrap());
+    assert!(
+        (now - opened).abs() < 2. && (turning - turned).abs() < 0.05,
+        "nothing jumps when it turns back: {opened} / {now}, {turned} / {turning}"
+    );
+    let mut last = now;
+    for _ in 0..(PANEL * 2).as_millis() / 16 {
+        advance(cx, Duration::from_millis(16));
+        let here = after(cx);
+        assert!(
+            here <= last && last - here < 12.,
+            "it folds smoothly: {last} then {here}"
+        );
+        last = here;
+    }
+    assert_eq!(after(cx), closed, "no jump at the end");
+    assert_eq!(pending_frames(cx), 0);
+
+    // And the other way: unfolded again part way through its fold.
+    cx.update(|window, cx| window.click("row", cx));
+    redraw(cx);
     advance(cx, PANEL * 2);
-    assert_eq!(pending_frames(cx), 0, "after {first} frames");
+    let full = after(cx);
+    cx.update(|window, cx| window.click("row", cx));
+    redraw(cx);
+    advance(cx, PANEL / 2);
+    let folding = after(cx);
+    cx.update(|window, cx| window.click("row", cx));
+    redraw(cx);
+    assert!((after(cx) - folding).abs() < 2., "no jump");
+    advance(cx, PANEL * 2);
+    assert_eq!(after(cx), full);
 }
 
 #[gpui_kit::test]
