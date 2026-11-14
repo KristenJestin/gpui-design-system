@@ -11,7 +11,6 @@
 
 use std::f32::consts::FRAC_PI_2;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use gpui_kit::{
     AnyElement, App, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement,
@@ -22,6 +21,7 @@ use gpui_kit::{
 use crate::color::mix;
 use crate::cut::tipped_when_cut;
 use crate::icons::{Icon, icon};
+use crate::ids::part;
 use crate::interact::hoverable;
 use crate::reveal::presence;
 use crate::rows::turning;
@@ -30,13 +30,6 @@ use crate::space;
 use crate::theme::{palette, radius};
 
 type OnToggle = Rc<dyn Fn(bool, &mut Window, &mut App) + 'static>;
-
-pub(crate) fn part(id: &ElementId, name: &str) -> ElementId {
-    match id {
-        ElementId::Name(text) => ElementId::Name(format!("{text}-{name}").into()),
-        other => ElementId::NamedChild(Arc::new(other.clone()), name.to_owned().into()),
-    }
-}
 
 /// A chevron that turns from pointing down (open) to pointing right (folded) over the fold's
 /// time, as `id` is open or not.

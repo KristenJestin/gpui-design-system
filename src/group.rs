@@ -17,6 +17,7 @@ use gpui_kit::{
 
 use crate::color::mix;
 use crate::cut::tipped_when_cut;
+use crate::ids::part;
 use crate::interact::hoverable;
 use crate::listing::Listing;
 use crate::reveal::{presence, presence_of};
@@ -24,7 +25,7 @@ use crate::seen;
 use crate::space;
 use crate::theme::palette;
 use crate::typography::Type;
-use crate::unfolding::{chevron, part};
+use crate::unfolding::chevron;
 
 type OnToggle = Rc<dyn Fn(bool, &mut Window, &mut App) + 'static>;
 

@@ -22,6 +22,7 @@ pub mod fuzzy;
 pub mod group;
 pub mod icons;
 pub mod identity;
+mod ids;
 mod interact;
 pub mod layer;
 pub mod lines;

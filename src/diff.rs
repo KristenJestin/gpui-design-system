@@ -11,10 +11,10 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, TestSupportExt, Window, div, px,
 };
 
+use crate::ids::part;
 use crate::space;
 use crate::theme::{Palette, palette, radius};
 use crate::typography::Type;
-use crate::unfolding::part;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {

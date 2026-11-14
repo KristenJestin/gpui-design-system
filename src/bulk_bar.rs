@@ -13,10 +13,10 @@ use gpui_kit::{
 };
 
 use crate::button::Button;
+use crate::ids::part;
 use crate::reveal::{changed, presence_of};
 use crate::space;
 use crate::theme::{palette, radius};
-use crate::unfolding::part;
 
 type OnClear = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 
