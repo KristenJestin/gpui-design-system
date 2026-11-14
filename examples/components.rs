@@ -10,9 +10,10 @@
 //! stays, and a success, which leaves after four seconds.
 
 use gpui_design_system::{
-    Badge, Block, Button, Card, Confirm, Drawer, EmptyLine, Field, Icon, Icons, ListCard, ListRow,
-    Menu, Modal, PageHeader, RadioChoices, Section, Segmented, Select, SelectOption, Subpage,
-    Switch, Toast, ToastStack, Type, icon, palette, space, toast,
+    Badge, Block, Button, Card, CheckState, Checkbox, Confirm, Drawer, EmptyLine, Field,
+    FilterChip, FilterChips, Icon, Icons, ListCard, ListRow, Menu, Modal, PageHeader, RadioChoices,
+    SearchField, Section, Segmented, Select, SelectOption, Subpage, Switch, Toast, ToastStack,
+    Tone, Type, follow_theme, icon, palette, space, toast,
 };
 use gpui_kit::base::input::{Input, InputState};
 use gpui_kit::{
@@ -82,6 +83,10 @@ struct Components {
     ask: usize,
     source: usize,
     tracker: usize,
+    find: Entity<InputState>,
+    filter: usize,
+    ticked: [bool; 3],
+    settings: [usize; 3],
     drawer: Entity<Drawer>,
     feature: Option<SharedString>,
     feature_page: Option<Entity<FeaturePage>>,
@@ -208,6 +213,11 @@ impl Components {
                 state
             })
         };
+        let find = cx.new(|cx| {
+            let mut state = InputState::new(window, cx);
+            follow_theme(&mut state, cx);
+            state
+        });
         let name = input("style", "style", window, cx);
         let when = input("writing code", "", window, cx);
         let file = input("docs/STYLE.md", "docs/STYLE.md", window, cx);
@@ -247,6 +257,10 @@ impl Components {
             ask: 0,
             source: 0,
             tracker: 0,
+            find,
+            filter: 0,
+            ticked: [false, true, false],
+            settings: [1, 1, 0],
             drawer,
             feature: None,
             feature_page: None,
@@ -560,6 +574,122 @@ impl Components {
             )
     }
 
+    /// The controls a list to review is made of: a search, filter chips, a checkbox per row and
+    /// for all of them, and a compact select per row whose pill follows its value.
+    fn review(&mut self, cx: &mut Context<Self>) -> gpui_kit::Div {
+        let p = palette(cx);
+        let this = cx.entity().downgrade();
+        let (chosen, all) = (this.clone(), this.clone());
+        let ticks = self.ticked.iter().filter(|ticked| **ticked).count();
+        let overall = match ticks {
+            0 => CheckState::Empty,
+            3 => CheckState::Checked,
+            _ => CheckState::Mixed,
+        };
+        let rows = ["fetch", "store", "remove"]
+            .into_iter()
+            .enumerate()
+            .map(|(at, name)| {
+                let (tick, set) = (this.clone(), this.clone());
+                let state = if self.ticked[at] {
+                    CheckState::Checked
+                } else {
+                    CheckState::Empty
+                };
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .h(px(30.))
+                    .child(Checkbox::new(format!("row-{at}"), state, name).on_change(
+                        move |to, _, cx| {
+                            tick.update(cx, |this, cx| {
+                                this.ticked[at] = to == CheckState::Checked;
+                                cx.notify();
+                            })
+                            .ok();
+                        },
+                    ))
+                    .child(div().flex_1().mono(12.).child(name))
+                    .child(
+                        Select::new(
+                            format!("setting-{at}"),
+                            [
+                                SelectOption::new("off", "Off")
+                                    .line("Never offered.")
+                                    .tone(Tone::Outline),
+                                SelectOption::new("allowed", "Allowed")
+                                    .line("Offered without asking.")
+                                    .tone(Tone::Ok),
+                                SelectOption::new("judged", "Judged")
+                                    .line("Decided case by case.")
+                                    .tone(Tone::Quiet),
+                                SelectOption::new("asked", "Asked")
+                                    .line("Always asks first.")
+                                    .tone(Tone::Strong),
+                            ],
+                            self.settings[at],
+                        )
+                        .compact()
+                        .width(px(86.))
+                        .on_choose(move |index, _, cx| {
+                            set.update(cx, |this, cx| {
+                                this.settings[at] = index;
+                                cx.notify();
+                            })
+                            .ok();
+                        }),
+                    )
+            });
+        Self::tile("Controls of a list to review", cx)
+            .w(px(420.))
+            .child(
+                SearchField::new("find", &self.find, "Search the items")
+                    .placeholder("Search 3 items by name"),
+            )
+            .child(
+                FilterChips::new(
+                    "show",
+                    "Show",
+                    [
+                        FilterChip::new("all", "All", 3),
+                        FilterChip::new("ticked", "Ticked", ticks),
+                        FilterChip::new("none", "Blocked", 0),
+                    ],
+                    self.filter,
+                )
+                .on_choose(move |index, _, cx| {
+                    chosen
+                        .update(cx, |this, cx| {
+                            this.filter = index;
+                            cx.notify();
+                        })
+                        .ok();
+                }),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .border_t_1()
+                    .border_color(p.line)
+                    .child(
+                        div().h(px(30.)).flex().items_center().child(
+                            Checkbox::new("all", overall, "Select all")
+                                .labelled()
+                                .on_change(move |to, _, cx| {
+                                    all.update(cx, |this, cx| {
+                                        this.ticked = [to == CheckState::Checked; 3];
+                                        cx.notify();
+                                    })
+                                    .ok();
+                                }),
+                        ),
+                    )
+                    .children(rows),
+            )
+    }
+
     fn tracker_select(&self, cx: &mut Context<Self>) -> Select {
         let this = cx.entity().downgrade();
         Select::new(
@@ -710,6 +840,7 @@ impl Render for Components {
             _ => None,
         };
         let controls = self.controls(cx);
+        let review = self.review(cx);
         let subpage = self.subpage(cx);
         div()
             .size_full()
@@ -730,7 +861,8 @@ impl Render for Components {
                     .child(subpage)
                     .child(self.folder(cx))
                     .child(self.page(cx))
-                    .child(controls),
+                    .child(controls)
+                    .child(review),
             )
             .child(self.drawer.clone())
             .children(overlay)

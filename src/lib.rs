@@ -8,6 +8,7 @@
 pub mod appearance;
 pub mod button;
 pub mod card;
+pub mod checkbox;
 pub mod choice_row;
 pub mod color;
 pub mod confirm;
@@ -16,6 +17,7 @@ pub mod disclosure;
 pub mod drawer;
 pub mod dropdown;
 pub mod field;
+pub mod filter_chips;
 pub mod fuzzy;
 pub mod icons;
 pub mod identity;
@@ -35,6 +37,7 @@ pub mod path;
 pub mod radio;
 pub mod reveal;
 pub mod rows;
+pub mod search_field;
 pub mod seen;
 pub mod segmented;
 pub mod select;
@@ -54,6 +57,7 @@ use gpui_kit::App;
 pub use appearance::{Appearance, DesktopTheme, Source};
 pub use button::{Badge, Button, ButtonKind, Tooltip, tipped};
 pub use card::{Block, Card};
+pub use checkbox::{CheckState, Checkbox};
 pub use choice_row::ChoiceRow;
 pub use confirm::Confirm;
 pub use cut::{QUOTED_CHARS, quoted, quoted_title, tipped_when_cut};
@@ -61,6 +65,7 @@ pub use disclosure::Disclosure;
 pub use drawer::{Drawer, Side};
 pub use dropdown::{Align, Dropdown, MenuItem};
 pub use field::{Field, StyledField, field_style, follow_theme};
+pub use filter_chips::{FilterChip, FilterChips};
 pub use icons::{Icon, Icons, icon};
 pub use identity::{Identity, identity};
 pub use interact::{
@@ -86,8 +91,9 @@ pub use rows::{
     ListCard, ListRow, Tie, TreeRow, meta, section_label, tie_below_id, tie_id, tie_through_id,
     tie_turn_id, toggle_id, tree_children, tree_tie, turning,
 };
+pub use search_field::SearchField;
 pub use segmented::Segmented;
-pub use select::{Select, SelectOption};
+pub use select::{Select, SelectOption, Tone};
 pub use set_here::SetHere;
 pub use skeleton::{Awaiting, Skeleton, awaiting};
 pub use subpage::Subpage;
