@@ -19,6 +19,7 @@ const BODY: f32 = 48.;
 struct Host {
     open: bool,
     found: bool,
+    toggled: Option<bool>,
 }
 
 impl Render for Host {
@@ -35,6 +36,7 @@ impl Render for Host {
                     .on_toggle(move |open, _, cx| {
                         this.update(cx, |this, cx| {
                             this.open = open;
+                            this.toggled = Some(open);
                             cx.notify();
                         })
                         .ok();
@@ -57,6 +59,7 @@ fn host(reduce: bool, cx: &mut TestAppContext) -> (Entity<Host>, &mut VisualTest
     let (view, cx) = cx.add_window_view(|_, _| Host {
         open: false,
         found: false,
+        toggled: None,
     });
     cx.update(|window, cx| window.render_frame(cx));
     advance(cx, PANEL * 2);
@@ -162,4 +165,43 @@ fn a_summary_row_jumps_with_reduced_motion(cx: &mut TestAppContext) {
     assert_eq!(value("rest-chevron"), Some(0.0), "the chevron jumps");
     assert!(after(cx) > closed + BODY, "the groups jump open");
     assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn a_click_on_a_summary_that_looks_open_folds_it(cx: &mut TestAppContext) {
+    let (view, cx) = host(false, cx);
+    let closed = after(cx);
+    found(&view, true, cx);
+    advance(cx, PANEL * 2);
+    assert!(after(cx) > closed + BODY, "unfolded by the search");
+
+    cx.update(|window, cx| window.click("rest", cx));
+    assert_eq!(
+        view.read_with(cx, |this, _| (this.toggled, this.open)),
+        (Some(false), false),
+        "the screen is told it folds"
+    );
+    cx.update(|window, cx| window.render_frame(cx));
+    advance(cx, PANEL / 3);
+    let folding = after(cx);
+    assert!(
+        closed < folding && folding < closed + BODY + 8.,
+        "folding: {folding}"
+    );
+    advance(cx, PANEL * 2);
+    assert_eq!(
+        after(cx),
+        closed,
+        "it stays folded while the search still finds"
+    );
+    assert_eq!(value("rest-chevron"), Some(1.0));
+    cx.update(|window, _| assert_eq!(window.find("rest").expanded(), Some(false)));
+    assert_eq!(pending_frames(cx), 0);
+
+    // Once nothing is found, the next search unfolds it again.
+    found(&view, false, cx);
+    advance(cx, PANEL * 2);
+    found(&view, true, cx);
+    advance(cx, PANEL * 2);
+    assert!(after(cx) > closed + BODY);
 }

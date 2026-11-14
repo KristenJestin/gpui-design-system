@@ -205,7 +205,8 @@ impl Summary {
     }
 
     /// Whether the screen needs what is under the line to be seen now (a search found something
-    /// in it): it unfolds, and folds back when this turns false if no click opened it.
+    /// in it): it unfolds, and folds back when this turns false if no click opened it. A click on
+    /// the line while it is unfolded by this folds it, until this turns false.
     pub fn unfolded_by(mut self, found: bool) -> Self {
         self.forced = found;
         self
@@ -227,8 +228,14 @@ impl ParentElement for Summary {
 impl RenderOnce for Summary {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = palette(cx);
-        let open = self.open || self.forced;
-        let asked = !self.open;
+        // A click on a line that looks open folds it, also while the screen still says something
+        // was found in it: the fold is remembered until nothing is found any more.
+        let dismissed = window.use_keyed_state(part(&self.id, "dismissed"), cx, |_, _| false);
+        if !self.forced && *dismissed.read(cx) {
+            dismissed.update(cx, |dismissed, _| *dismissed = false);
+        }
+        let open = self.open || (self.forced && !*dismissed.read(cx));
+        let forced = self.forced;
         let mut line = div()
             .id(self.id.clone())
             .aria_expanded(open)
@@ -268,9 +275,16 @@ impl RenderOnce for Summary {
         line =
             line.child(div().flex_1())
                 .child(chevron(part(&self.id, "chevron"), open, window, cx));
-        if let Some(on_toggle) = self.on_toggle {
-            line = line.on_click(move |_, window, cx| on_toggle(asked, window, cx));
-        }
+        let on_toggle = self.on_toggle;
+        line = line.on_click(move |_, window, cx| {
+            dismissed.update(cx, |dismissed, cx| {
+                *dismissed = open && forced;
+                cx.notify();
+            });
+            if let Some(on_toggle) = &on_toggle {
+                on_toggle(!open, window, cx);
+            }
+        });
         let line_id = self.id.clone();
         let line = hoverable(line, move |d, t| {
             seen::note(&line_id, t);
