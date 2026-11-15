@@ -54,6 +54,7 @@ pub mod tabs;
 pub mod tag;
 pub mod theme;
 pub mod toast;
+pub mod token_field;
 pub mod typography;
 pub mod unfolding;
 
@@ -110,6 +111,7 @@ pub use tabs::Tabs;
 pub use tag::Tag;
 pub use theme::{Palette, Theme, palette};
 pub use toast::{Toast, ToastKind, ToastStack, toast};
+pub use token_field::{Piece, Token, TokenEvent, TokenField, TokenLook, TokenText};
 pub use typography::Type;
 pub use unfolding::{Summary, Unfolding};
 
