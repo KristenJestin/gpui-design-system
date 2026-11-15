@@ -632,7 +632,9 @@ impl TokenField {
                         .input
                         .update(cx, |input, cx| input.replace_with_token(inline, window, cx));
                     if put.is_ok() {
-                        self.looks.insert(token.id, token.look);
+                        // The field's own look wins: a copy made before a relabel must not undo
+                        // it. A paste only brings the look of an id the field does not know.
+                        self.looks.entry(token.id).or_insert(token.look);
                     }
                 }
             }
@@ -665,12 +667,17 @@ impl TokenField {
         {
             shown.relabeled = None;
         }
-        let (look, ink) = shown
-            .relabeled
-            .as_ref()
-            .map_or((current.clone(), 1.0), |r| {
-                (r.drawn(now, &current).clone(), r.ink(now))
-            });
+        let (look, ink, newest) =
+            shown
+                .relabeled
+                .as_ref()
+                .map_or((current.clone(), 1.0, true), |r| {
+                    (
+                        r.drawn(now, &current).clone(),
+                        r.ink(now),
+                        r.motion.value(now) >= 0.5,
+                    )
+                });
         let target = if selected { 1.0 } else { 0.0 };
         if shown.selected.target() != target {
             shown.selected.animate(target, HOVER, now, reduce);
@@ -687,6 +694,11 @@ impl TokenField {
         crate::seen::note(
             &ElementId::Name(format!("{}-{}-{index}-ink", self.id, shown.token.id()).into()),
             ink,
+        );
+        // Which look the label is drawn in: 0 the one it had, 1 the newest.
+        crate::seen::note(
+            &ElementId::Name(format!("{}-{}-{index}-label", self.id, shown.token.id()).into()),
+            if newest { 1.0 } else { 0.0 },
         );
         Some(ChipNow {
             id: ElementId::NamedInteger(format!("{}-token", self.id).into(), shown.serial),

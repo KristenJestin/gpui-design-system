@@ -708,15 +708,34 @@ fn relabel_moves_the_ink_over_hover(cx: &mut TestAppContext) {
         "at rest it is drawn whole"
     );
 
+    assert_eq!(
+        seen("draft-img-1-0-label"),
+        Some(1.0),
+        "at rest it is the current label"
+    );
+
+    // Ease-out: the motion is half way (the midpoint, where the look changes) a fifth in.
     relabel(&view, "img-1", renumbered(1, 2).look, cx);
-    advance(cx, HOVER / 3);
+    advance(cx, HOVER / 10);
     let part = seen("draft-img-1-0-ink").unwrap();
     assert!(
         0.0 < part && part < 1.0,
         "the ink moves, not a jump: {part}"
     );
+    assert_eq!(
+        seen("draft-img-1-0-label"),
+        Some(0.0),
+        "before the midpoint the label drawn is the old one"
+    );
+    advance(cx, HOVER / 4);
+    assert_eq!(
+        seen("draft-img-1-0-label"),
+        Some(1.0),
+        "after the midpoint it is the new one"
+    );
     advance(cx, HOVER * 2);
     assert_eq!(seen("draft-img-1-0-ink"), Some(1.0));
+    assert_eq!(seen("draft-img-1-0-label"), Some(1.0));
     assert_eq!(pending_frames(cx), 0, "and nothing is redrawn at rest");
 
     cx.update(|_, cx| cx.set_reduce_motion(true));
@@ -727,6 +746,131 @@ fn relabel_moves_the_ink_over_hover(cx: &mut TestAppContext) {
         "with reduced motion it jumps"
     );
     assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn relabel_changes_every_chip_of_the_id(cx: &mut TestAppContext) {
+    let (view, cx) = composer(cx);
+    insert(&view, picture(1), cx);
+    insert(&view, picture(2), cx);
+    insert(&view, picture(1), cx);
+    advance(cx, ENTER * 2);
+
+    relabel(&view, "img-1", renumbered(1, 9).look, cx);
+    assert_eq!(
+        value(&view, cx),
+        [
+            Piece::Token(renumbered(1, 9)),
+            Piece::Token(picture(2)),
+            Piece::Token(renumbered(1, 9)),
+        ],
+        "both copies took the look, the other id kept its own"
+    );
+    advance(cx, HOVER / 3);
+    for copy in ["draft-img-1-0-ink", "draft-img-1-2-ink"] {
+        let part = seen(copy).unwrap();
+        assert!(0.0 < part && part < 1.0, "{copy} moves: {part}");
+    }
+    assert_eq!(
+        seen("draft-img-2-1-ink"),
+        Some(1.0),
+        "the chip of another id does not move"
+    );
+    advance(cx, HOVER * 2);
+    for copy in ["draft-img-1-0-label", "draft-img-1-2-label"] {
+        assert_eq!(seen(copy), Some(1.0), "{copy} ends on the new look");
+    }
+}
+
+#[gpui_kit::test]
+fn a_relabel_during_a_relabel_ends_on_the_newest_look(cx: &mut TestAppContext) {
+    let (view, cx) = composer(cx);
+    insert(&view, picture(1), cx);
+    advance(cx, ENTER * 2);
+
+    // Interrupted while the old look fades out, then while the new one fades in: the ink picks
+    // up from what is drawn, never jumps.
+    for (first, second) in [(HOVER / 10, HOVER / 2), (HOVER * 7 / 10, HOVER / 2)] {
+        relabel(&view, "img-1", renumbered(1, 2).look, cx);
+        advance(cx, first);
+        let before = seen("draft-img-1-0-ink").unwrap();
+        assert!(before < 1.0, "it is moving: {before}");
+        relabel(&view, "img-1", renumbered(1, 3).look, cx);
+        let after = seen("draft-img-1-0-ink").unwrap();
+        assert!(
+            (after - before).abs() < 0.05,
+            "the ink does not jump: {before} then {after}"
+        );
+        advance(cx, second);
+        advance(cx, HOVER * 2);
+        assert_eq!(value(&view, cx), [Piece::Token(renumbered(1, 3))]);
+        assert_eq!(seen("draft-img-1-0-ink"), Some(1.0));
+        assert_eq!(
+            seen("draft-img-1-0-label"),
+            Some(1.0),
+            "it ends on the newest look"
+        );
+        assert_eq!(pending_frames(cx), 0);
+        // Back to the first look for the next round.
+        set_value(&view, vec![Piece::Token(picture(1))], cx);
+        advance(cx, ENTER * 2);
+    }
+}
+
+#[gpui_kit::test]
+fn a_paste_keeps_a_relabelled_look(cx: &mut TestAppContext) {
+    let (view, cx) = composer(cx);
+    for n in 1..=3 {
+        insert(&view, picture(n), cx);
+    }
+    advance(cx, ENTER * 2);
+    // Copy chip 3 while it says "Image 3".
+    let end = raw(&view, cx).len();
+    select(&view, end - "Image 3".len()..end, cx);
+    keys("ctrl-c", cx);
+    // The person removes chip 2; the application numbers chip 3 again.
+    let after_two = end - "Image 3".len();
+    select(&view, after_two..after_two, cx);
+    keys("backspace", cx);
+    advance(cx, PANEL * 2);
+    relabel(&view, "img-3", renumbered(3, 2).look, cx);
+    advance(cx, HOVER * 2);
+
+    to_end(&view, cx);
+    keys("ctrl-v", cx);
+    advance(cx, ENTER * 2);
+    assert_eq!(
+        value(&view, cx),
+        [
+            Piece::Token(picture(1)),
+            Piece::Token(renumbered(3, 2)),
+            Piece::Token(renumbered(3, 2)),
+        ],
+        "the field's own look wins: every copy of img-3 says Image 2"
+    );
+
+    keys("ctrl-z", cx);
+    assert_eq!(
+        value(&view, cx),
+        [Piece::Token(picture(1)), Piece::Token(renumbered(3, 2))],
+        "undoing the paste leaves Image 2"
+    );
+}
+
+#[gpui_kit::test]
+fn a_paste_brings_a_look_for_an_id_the_field_does_not_know(cx: &mut TestAppContext) {
+    let (view, cx) = composer(cx);
+    set_value(&view, vec![Piece::Token(picture(1))], cx);
+    keys("ctrl-a", cx);
+    keys("ctrl-c", cx);
+    set_value(&view, vec![text("empty")], cx);
+    to_end(&view, cx);
+    keys("ctrl-v", cx);
+    assert_eq!(
+        value(&view, cx),
+        [text("empty"), Piece::Token(picture(1))],
+        "the copy's look is the only one there is"
+    );
 }
 
 /// A message sent, its token clicked.
