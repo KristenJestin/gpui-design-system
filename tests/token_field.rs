@@ -13,8 +13,9 @@ use gpui_design_system::seen::seen;
 use gpui_design_system::{Icon, Piece, Token, TokenEvent, TokenField, TokenLook, TokenText};
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
-    AppContext as _, ClipboardItem, Context, Entity, IntoElement, ParentElement, Render,
-    SharedString, Styled, TestAppContext, VisualTestContext, Window, div, px, size,
+    AppContext as _, ClipboardItem, Context, Entity, EntityInputHandler as _, InteractiveElement,
+    IntoElement, ParentElement, Render, SharedString, Styled, TestAppContext, TestSupportExt,
+    VisualTestContext, Window, div, px, size,
 };
 
 /// A field with what it told, as a composer holds it.
@@ -83,6 +84,19 @@ fn set_text(view: &Entity<Composer>, value: &str, cx: &mut VisualTestContext) {
     cx.update(|window, cx| window.render_frame(cx));
 }
 
+fn set_value(view: &Entity<Composer>, pieces: Vec<Piece>, cx: &mut VisualTestContext) {
+    let field = field(view, cx);
+    cx.update(|window, cx| {
+        field.update(cx, |field, cx| field.set_value(pieces, window, cx).unwrap())
+    });
+    cx.update(|window, cx| window.render_frame(cx));
+}
+
+fn to_end(view: &Entity<Composer>, cx: &mut VisualTestContext) {
+    let end = raw(view, cx).len();
+    select(view, end..end, cx);
+}
+
 fn insert(view: &Entity<Composer>, token: Token, cx: &mut VisualTestContext) {
     let field = field(view, cx);
     cx.update(|window, cx| field.update(cx, |field, cx| field.insert(token, window, cx).unwrap()));
@@ -144,10 +158,10 @@ fn a_token_is_inserted_at_the_caret(cx: &mut TestAppContext) {
     );
 
     advance(cx, ENTER / 3);
-    let part = seen("draft-img-1").expect("the chip was drawn");
+    let part = seen("draft-img-1-0").expect("the chip was drawn");
     assert!(0.0 < part && part < 1.0, "it unfolds, not a jump: {part}");
     advance(cx, ENTER * 2);
-    assert_eq!(seen("draft-img-1"), Some(1.0));
+    assert_eq!(seen("draft-img-1-0"), Some(1.0));
     assert_eq!(pending_frames(cx), 0, "and it stops asking for frames");
 
     cx.simulate_input("!");
@@ -204,7 +218,7 @@ fn backspace_removes_a_token_whole_and_says_which(cx: &mut TestAppContext) {
     );
     assert_eq!(caret(&view, cx), 4);
     advance(cx, PANEL / 3);
-    let part = seen("draft-img-1").unwrap();
+    let part = seen("draft-img-1-0").unwrap();
     assert!(
         0.0 < part && part < 1.0,
         "it folds away, not a jump: {part}"
@@ -248,7 +262,7 @@ fn backspace_removes_a_token_whole_and_says_which(cx: &mut TestAppContext) {
     cx.update(|window, cx| field.update(cx, |field, cx| field.remove("img-3", window, cx)));
     assert_eq!(value(&view, cx), [text("see ")]);
     advance(cx, PANEL / 3);
-    let part = seen("draft-img-3").unwrap();
+    let part = seen("draft-img-3-0").unwrap();
     assert!(0.0 < part && part < 1.0, "it folds away: {part}");
     advance(cx, PANEL * 2);
     assert_eq!(raw(&view, cx), "see ");
@@ -322,7 +336,10 @@ fn copy_and_cut_keep_the_tokens(cx: &mut TestAppContext) {
         ],
         "pasted in the field, it is a token again"
     );
-    assert_eq!(heard(&view, cx), [TokenEvent::Added("img-1".into())]);
+    assert!(
+        heard(&view, cx).is_empty(),
+        "img-1 was already in the text: a second copy says nothing"
+    );
 
     set_text(&view, "", cx);
     let field = field(&view, cx);
@@ -344,15 +361,231 @@ fn copy_and_cut_keep_the_tokens(cx: &mut TestAppContext) {
         heard(&view, cx).last(),
         Some(&TokenEvent::Added("img-1".into()))
     );
+}
 
-    // The same words copied elsewhere are only text.
-    cx.update(|_, cx| cx.write_to_clipboard(ClipboardItem::new_string("Image 1".into())));
-    let end = raw(&view, cx).len();
-    select(&view, end..end, cx);
+#[gpui_kit::test]
+fn the_same_words_copied_elsewhere_stay_text(cx: &mut TestAppContext) {
+    let (view, cx) = composer(cx);
+    set_value(&view, vec![text("see "), Piece::Token(picture(1))], cx);
+    keys("ctrl-a", cx);
+    keys("ctrl-c", cx);
+    cx.update(|_, cx| cx.write_to_clipboard(ClipboardItem::new_string("see Image 1".into())));
+    to_end(&view, cx);
     keys("ctrl-v", cx);
     assert_eq!(
         value(&view, cx),
-        [text("see "), Piece::Token(picture(1)), text(" hereImage 1")]
+        [text("see "), Piece::Token(picture(1)), text("see Image 1")],
+        "another application copied the same words: they are text"
+    );
+    assert!(heard(&view, cx).is_empty());
+}
+
+#[gpui_kit::test]
+fn a_copy_without_tokens_forgets_the_last_one(cx: &mut TestAppContext) {
+    let (view, cx) = composer(cx);
+    set_value(&view, vec![text("see "), Piece::Token(picture(1))], cx);
+    keys("ctrl-a", cx);
+    keys("ctrl-c", cx);
+    let with_tokens = cx.update(|_, cx| cx.read_from_clipboard()).unwrap();
+    select(&view, 0..3, cx);
+    keys("ctrl-c", cx);
+    assert_eq!(clipboard(cx).as_deref(), Some("see"));
+
+    // The first copy comes back on the clipboard (a clipboard manager's history): the field no
+    // longer holds its tokens, so it is text.
+    cx.update(|_, cx| cx.write_to_clipboard(with_tokens));
+    to_end(&view, cx);
+    keys("ctrl-v", cx);
+    assert_eq!(
+        value(&view, cx),
+        [text("see "), Piece::Token(picture(1)), text("see Image 1")]
+    );
+    assert!(heard(&view, cx).is_empty());
+}
+
+#[gpui_kit::test]
+fn backspace_on_one_of_two_identical_chips_removes_only_it(cx: &mut TestAppContext) {
+    let (view, cx) = composer(cx);
+    set_value(
+        &view,
+        vec![Piece::Token(picture(1)), Piece::Token(picture(1))],
+        cx,
+    );
+    let first = "Image 1".len();
+    select(&view, first..first, cx);
+    keys("backspace", cx);
+    assert_eq!(value(&view, cx), [Piece::Token(picture(1))]);
+    advance(cx, PANEL * 2);
+    advance(cx, PANEL * 2);
+    assert_eq!(raw(&view, cx), "Image 1", "the other copy stays");
+    assert_eq!(value(&view, cx), [Piece::Token(picture(1))]);
+    assert_eq!(caret(&view, cx), 0);
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn inserting_over_a_selection_says_which_chips_it_replaced(cx: &mut TestAppContext) {
+    let (view, cx) = composer(cx);
+    set_value(
+        &view,
+        vec![
+            text("see "),
+            Piece::Token(picture(1)),
+            text(" and "),
+            Piece::Token(picture(2)),
+        ],
+        cx,
+    );
+    keys("ctrl-a", cx);
+    insert(&view, command(), cx);
+    assert_eq!(value(&view, cx), [Piece::Token(command())]);
+    assert_eq!(
+        heard(&view, cx),
+        [
+            TokenEvent::Removed("img-1".into()),
+            TokenEvent::Removed("img-2".into())
+        ],
+        "the person chose to replace them"
+    );
+}
+
+#[gpui_kit::test]
+fn a_second_copy_of_a_chip_says_nothing(cx: &mut TestAppContext) {
+    let (view, cx) = composer(cx);
+    set_value(&view, vec![text("see "), Piece::Token(picture(1))], cx);
+    keys("ctrl-a", cx);
+    keys("ctrl-c", cx);
+    to_end(&view, cx);
+    keys("ctrl-v", cx);
+    assert_eq!(
+        value(&view, cx),
+        [
+            text("see "),
+            Piece::Token(picture(1)),
+            text("see "),
+            Piece::Token(picture(1))
+        ]
+    );
+    assert!(
+        heard(&view, cx).is_empty(),
+        "img-1 was already there: {:?}",
+        heard(&view, cx)
+    );
+
+    keys("backspace", cx);
+    advance(cx, PANEL * 2);
+    assert_eq!(
+        value(&view, cx),
+        [text("see "), Piece::Token(picture(1)), text("see ")]
+    );
+    assert!(
+        heard(&view, cx).is_empty(),
+        "img-1 is still there: {:?}",
+        heard(&view, cx)
+    );
+}
+
+#[gpui_kit::test]
+fn removing_the_last_copy_says_removed(cx: &mut TestAppContext) {
+    let (view, cx) = composer(cx);
+    set_value(
+        &view,
+        vec![
+            Piece::Token(picture(1)),
+            text(" "),
+            Piece::Token(picture(1)),
+        ],
+        cx,
+    );
+    to_end(&view, cx);
+    keys("backspace", cx);
+    advance(cx, PANEL * 2);
+    assert!(heard(&view, cx).is_empty());
+    keys("backspace", cx);
+    keys("backspace", cx);
+    advance(cx, PANEL * 2);
+    assert_eq!(value(&view, cx), Vec::<Piece>::new());
+    assert_eq!(heard(&view, cx), [TokenEvent::Removed("img-1".into())]);
+
+    keys("ctrl-z", cx);
+    assert!(value(&view, cx).contains(&Piece::Token(picture(1))));
+    assert_eq!(
+        heard(&view, cx).last(),
+        Some(&TokenEvent::Added("img-1".into()))
+    );
+
+    // A cut of every copy says it once.
+    set_value(
+        &view,
+        vec![
+            Piece::Token(picture(2)),
+            text(" "),
+            Piece::Token(picture(2)),
+        ],
+        cx,
+    );
+    keys("ctrl-a", cx);
+    keys("ctrl-x", cx);
+    let removed: Vec<_> = heard(&view, cx)
+        .into_iter()
+        .filter(|event| *event == TokenEvent::Removed("img-2".into()))
+        .collect();
+    assert_eq!(removed.len(), 1);
+}
+
+#[gpui_kit::test]
+fn typing_with_an_input_method_while_a_chip_folds_keeps_the_typing(cx: &mut TestAppContext) {
+    let (view, cx) = composer(cx);
+    set_value(&view, vec![text("see "), Piece::Token(picture(1))], cx);
+    to_end(&view, cx);
+    keys("backspace", cx);
+    let input = field(&view, cx).read_with(cx, |field, _| field.input().clone());
+    cx.update(|window, cx| {
+        input.update(cx, |input, cx| {
+            input.replace_and_mark_text_in_range(None, "か", None, window, cx)
+        })
+    });
+    advance(cx, PANEL * 2);
+    assert_eq!(
+        raw(&view, cx),
+        "see かImage 1",
+        "the chip waits while something is being composed"
+    );
+
+    cx.simulate_input("か");
+    advance(cx, PANEL);
+    assert_eq!(raw(&view, cx), "see か", "the typing stays, the chip goes");
+    assert_eq!(value(&view, cx), [text("see か")]);
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn each_copy_of_a_chip_unfolds_on_its_own(cx: &mut TestAppContext) {
+    let (view, cx) = composer(cx);
+    insert(&view, picture(1), cx);
+    advance(cx, ENTER * 2);
+    insert(&view, picture(1), cx);
+    advance(cx, ENTER / 3);
+    assert_eq!(seen("draft-img-1-0"), Some(1.0), "the first is at rest");
+    let part = seen("draft-img-1-1").expect("the second was drawn");
+    assert!(0.0 < part && part < 1.0, "the second unfolds: {part}");
+}
+
+#[gpui_kit::test]
+fn a_second_look_under_the_same_id_replaces_the_first(cx: &mut TestAppContext) {
+    let (view, cx) = composer(cx);
+    insert(&view, picture(1), cx);
+    let renamed = Token::new(
+        "img-1",
+        TokenLook::new("Image 1")
+            .glyph(Icon::File)
+            .detail("renamed.png"),
+    );
+    insert(&view, renamed.clone(), cx);
+    assert_eq!(
+        value(&view, cx),
+        [Piece::Token(renamed.clone()), Piece::Token(renamed)],
+        "one id, one look"
     );
 }
 
@@ -403,4 +636,39 @@ fn a_token_in_a_read_only_text_is_clickable(cx: &mut TestAppContext) {
 
     cx.update(|window, cx| window.click(("message-token", 0usize), cx));
     assert_eq!(*clicked.borrow(), [SharedString::from("img-2")]);
+}
+
+/// A message whose one word is longer than its line.
+struct Narrow;
+
+impl Render for Narrow {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        // The window's root takes the whole window: the text sits in a column that does not
+        // stretch it.
+        div().flex().flex_col().items_start().child(
+            div()
+                .id("narrow")
+                .w(px(80.))
+                .test_support()
+                .child(TokenText::new(
+                    "message",
+                    [text(
+                        "Rindfleischetikettierungsüberwachungsaufgabenübertragungsgesetz",
+                    )],
+                )),
+        )
+    }
+}
+
+#[gpui_kit::test]
+fn a_word_longer_than_the_line_wraps(cx: &mut TestAppContext) {
+    init(cx);
+    let (_, cx) = cx.add_window_view(|_, _| Narrow);
+    cx.simulate_resize(size(px(600.), px(400.)));
+    cx.update(|window, cx| window.render_frame(cx));
+    let narrow = cx.update(|window, _| window.find("narrow").bounds());
+    assert!(
+        narrow.size.height > px(30.),
+        "the word goes on over more lines instead of out of the text: {narrow:?}"
+    );
 }

@@ -9,10 +9,18 @@
 //! copy pasted elsewhere all work on plain text, and a token pasted outside the field is its
 //! label.
 //!
-//! The field says, as [`TokenEvent`]s, what the person did to its tokens: one removed (by
-//! Backspace, Delete, a cut or text typed over it), one that came back (a paste, an undo). What
-//! the application does itself ([`TokenField::insert`], [`TokenField::remove`],
-//! [`TokenField::set_value`]) is not said back to it.
+//! The field says, as [`TokenEvent`]s, what the person did to its tokens, by id: an id that left
+//! the text (Backspace, Delete, a cut, text typed over it, a token inserted over a selection that
+//! held it), an id that came back (a paste, an undo). An id is said once for all its copies:
+//! `Added` when its first copy arrives, `Removed` when its last copy leaves. What the application
+//! does itself ([`TokenField::insert`], [`TokenField::remove`], [`TokenField::set_value`]) is not
+//! said back to it, except the tokens an insertion replaces.
+//!
+//! A copy that holds tokens is written to the clipboard as its text, with a marker of its own as
+//! the clipboard's metadata; a paste brings its tokens back only when that marker comes back, so
+//! the same words copied by another application stay text. A copy from one field pasted into
+//! another brings its chips there (said `Added` there). A copy without tokens forgets the last
+//! one.
 //!
 //! A token inserted unfolds and fades in over [`ENTER`]; one removed by Backspace, Delete or
 //! [`TokenField::remove`] folds away and fades out over [`PANEL`] before its text goes (it is
@@ -33,9 +41,9 @@ use gpui_kit::base::input::{
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, Bounds, ClipboardItem, Context, Div, ElementId, Entity,
-    EventEmitter, Global, InteractiveElement, IntoElement, ParentElement, Pixels, Render,
-    RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription,
-    WeakEntity, Window, canvas, div, px,
+    EntityInputHandler as _, EventEmitter, Global, InteractiveElement, IntoElement, ParentElement,
+    Pixels, Render, RenderOnce, SharedString, Stateful, StatefulInteractiveElement, Styled,
+    Subscription, WeakEntity, Window, canvas, div, px,
 };
 
 use crate::color::mix;
@@ -145,10 +153,11 @@ enum Who {
     Restore,
 }
 
-/// What a copy of the field holds, for a paste into a field: the clipboard holds only the text,
-/// the tokens as their labels.
+/// What a copy of the field holds, for a paste into a field: the clipboard holds the text, the
+/// tokens as their labels, and `marker` as its metadata, which says the copy is this one.
 #[derive(Clone)]
 struct Copied {
+    marker: String,
     text: String,
     pieces: Vec<Piece>,
 }
@@ -179,6 +188,11 @@ impl TokenField {
         let changes = cx.subscribe_in(&input, window, |field, _, event: &InputEvent, _, cx| {
             if matches!(event, InputEvent::Change) {
                 field.sync(Who::Person, cx);
+                // A chip that has folded waits for what is being composed: once it is typed, the
+                // field draws again and takes it out.
+                if field.shown.iter().any(|shown| shown.leaving.is_some()) {
+                    cx.notify();
+                }
             }
         });
         Self {
@@ -198,7 +212,9 @@ impl TokenField {
     }
 
     /// Puts `token` in place of the selection, at the caret when nothing is selected; the caret
-    /// is after it. No space is added around it.
+    /// is after it. No space is added around it. The tokens of the selection it replaces are said
+    /// `Removed`: the person chose to replace them. An id holds one look: a token inserted under
+    /// an id already in the text gives every copy its look.
     pub fn insert(
         &mut self,
         token: Token,
@@ -206,10 +222,16 @@ impl TokenField {
         cx: &mut Context<Self>,
     ) -> Result<(), InlineTokenError> {
         let inline = InlineToken::new(token.id.clone(), token.look.label.clone());
+        let before = self.live();
         self.input
             .update(cx, |input, cx| input.replace_with_token(inline, window, cx))?;
         self.looks.insert(token.id, token.look);
         self.sync(Who::Application, cx);
+        for id in before {
+            if !self.live().contains(&id) {
+                cx.emit(TokenEvent::Removed(id));
+            }
+        }
         Ok(())
     }
 
@@ -245,7 +267,8 @@ impl TokenField {
     }
 
     /// Replaces the whole text with `pieces` (a draft restored, the field emptied once it is
-    /// sent), without history and without motion.
+    /// sent), without history and without motion. The looks of the ids it no longer holds are
+    /// forgotten: nothing can bring them back.
     pub fn set_value(
         &mut self,
         pieces: impl IntoIterator<Item = Piece>,
@@ -254,6 +277,7 @@ impl TokenField {
     ) -> Result<(), InlineTokenError> {
         let mut text = String::new();
         let mut tokens = Vec::new();
+        self.looks.clear();
         for piece in pieces {
             match piece {
                 Piece::Text(part) => text.push_str(&part),
@@ -293,6 +317,7 @@ impl TokenField {
     fn sync(&mut self, change: Who, cx: &mut Context<Self>) {
         let now = cx.background_executor().now();
         let reduce = cx.reduce_motion();
+        let live = self.live();
         let tokens: Vec<InlineToken> = self
             .input
             .read(cx)
@@ -336,24 +361,59 @@ impl TokenField {
                 }
             })
             .collect();
-        let told: Vec<SharedString> = came.iter().map(|s| s.token.id().clone()).collect();
         let end = self.shown.len() - after;
-        let gone: Vec<Shown> = self.shown.splice(before..end, came).collect();
+        self.shown.splice(before..end, came);
         if change == Who::Person {
-            for shown in gone.iter().filter(|shown| shown.leaving.is_none()) {
-                cx.emit(TokenEvent::Removed(shown.token.id().clone()));
-            }
-            for id in told {
-                cx.emit(TokenEvent::Added(id));
-            }
+            self.tell(&live, cx);
         }
         cx.notify();
     }
 
-    /// Takes out of the text the tokens that have folded away, the caret staying where it was.
+    /// The ids in the text that are not folding away, each once, in order.
+    fn live(&self) -> Vec<SharedString> {
+        let mut ids: Vec<SharedString> = Vec::new();
+        for shown in self.shown.iter().filter(|shown| shown.leaving.is_none()) {
+            if !ids.contains(shown.token.id()) {
+                ids.push(shown.token.id().clone());
+            }
+        }
+        ids
+    }
+
+    /// Says the ids that left since `before` (their last copy gone) and those that came (their
+    /// first copy).
+    fn tell(&self, before: &[SharedString], cx: &mut Context<Self>) {
+        let after = self.live();
+        for id in before.iter().filter(|id| !after.contains(id)) {
+            cx.emit(TokenEvent::Removed(id.clone()));
+        }
+        for id in after.iter().filter(|id| !before.contains(id)) {
+            cx.emit(TokenEvent::Added(id.clone()));
+        }
+    }
+
+    /// Takes out of the text the tokens that have folded away, by their range, the caret staying
+    /// where it was. While something is being composed (an input method), or while the text is
+    /// not editable, they wait: the composition owns the text being typed.
     fn finish_leaving(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.sync(Who::Person, cx);
         let now = cx.background_executor().now();
+        let done: Vec<usize> = self
+            .shown
+            .iter()
+            .enumerate()
+            .filter(|(_, shown)| shown.leaving.is_some_and(|m| !m.is_running(now)))
+            .map(|(index, _)| index)
+            .collect();
+        if done.is_empty() {
+            return;
+        }
+        let waiting = self.input.update(cx, |input, cx| {
+            !input.is_editable() || input.marked_text_range(window, cx).is_some()
+        });
+        if waiting {
+            return;
+        }
         let spans: Vec<Range<usize>> = self
             .input
             .read(cx)
@@ -361,21 +421,13 @@ impl TokenField {
             .iter()
             .map(|span| span.range())
             .collect();
-        let done: Vec<Range<usize>> = self
-            .shown
-            .iter()
-            .zip(spans)
-            .filter(|(shown, _)| shown.leaving.is_some_and(|m| !m.is_running(now)))
-            .map(|(_, range)| range)
-            .collect();
-        if done.is_empty() {
-            return;
-        }
         self.input.update(cx, |input, cx| {
             let mut caret = input.selected_range();
-            for range in done.iter().rev() {
-                input.set_selected_range(range.clone(), cx);
-                input.replace("", window, cx);
+            for &index in done.iter().rev() {
+                let range = &spans[index];
+                let text = input.value();
+                let utf16 = utf16(&text, range.start)..utf16(&text, range.end);
+                input.replace_text_in_range(Some(utf16), "", window, cx);
                 let shift = |at: usize| {
                     if at >= range.end {
                         at - range.len()
@@ -387,6 +439,9 @@ impl TokenField {
             }
             input.set_selected_range(caret, cx);
         });
+        for &index in done.iter().rev() {
+            self.shown.remove(index);
+        }
         self.sync(Who::Application, cx);
     }
 
@@ -419,8 +474,9 @@ impl TokenField {
         let start = input.tokens()[index].range().start;
         cx.stop_propagation();
         let now = cx.background_executor().now();
+        let live = self.live();
         self.shown[index].leaving = Some(folding(now, false));
-        cx.emit(TokenEvent::Removed(self.shown[index].token.id().clone()));
+        self.tell(&live, cx);
         if before {
             self.input
                 .update(cx, |input, cx| input.set_selected_range(start..start, cx));
@@ -450,16 +506,19 @@ impl TokenField {
         }
         push_text(&mut pieces, &text[at..selected.end]);
         Some(Copied {
+            marker: marker(),
             text: text[selected].to_owned(),
             pieces,
         })
     }
 
     fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
-        if let Some(copied) = self.selection(cx) {
-            cx.stop_propagation();
-            cx.write_to_clipboard(ClipboardItem::new_string(copied.text.clone()));
-            cx.set_global(copied);
+        match self.selection(cx) {
+            Some(copied) => {
+                cx.stop_propagation();
+                remember(copied, cx);
+            }
+            None => forget(cx),
         }
     }
 
@@ -468,17 +527,20 @@ impl TokenField {
         if !input.is_editable() {
             return;
         }
-        if let Some(copied) = self.selection(cx) {
-            cx.stop_propagation();
-            cx.write_to_clipboard(ClipboardItem::new_string(copied.text.clone()));
-            cx.set_global(copied);
-            self.input
-                .update(cx, |input, cx| input.replace("", window, cx));
-            self.sync(Who::Person, cx);
-        }
+        let Some(copied) = self.selection(cx) else {
+            forget(cx);
+            return;
+        };
+        cx.stop_propagation();
+        remember(copied, cx);
+        self.input
+            .update(cx, |input, cx| input.replace("", window, cx));
+        self.sync(Who::Person, cx);
     }
 
-    /// A paste of what a field copied puts its tokens back; any other text is the input's.
+    /// A paste of what a field copied puts its tokens back, known by its marker coming back with
+    /// it (GPUI on Linux gives the application its own item, metadata and all, while it owns the
+    /// clipboard); any other text is the input's.
     fn paste(&mut self, _: &Paste, window: &mut Window, cx: &mut Context<Self>) {
         let input = self.input.read(cx);
         if !input.is_editable() {
@@ -487,7 +549,8 @@ impl TokenField {
         let Some(copied) = cx.try_global::<Copied>().cloned() else {
             return;
         };
-        if cx.read_from_clipboard().and_then(|item| item.text()) != Some(copied.text) {
+        let pasted = cx.read_from_clipboard();
+        if pasted.as_ref().and_then(|item| item.metadata()) != Some(&copied.marker) {
             return;
         }
         cx.stop_propagation();
@@ -517,12 +580,13 @@ impl TokenField {
         selected: bool,
         cx: &mut Context<Self>,
     ) -> Option<ChipNow> {
+        // The tokens are in the order of the text: the chip finds its own by where it starts.
         let index = self
             .input
             .read(cx)
             .tokens()
-            .iter()
-            .position(|span| span.range() == range)?;
+            .binary_search_by_key(&range.start, |span| span.range().start)
+            .ok()?;
         let now = cx.background_executor().now();
         let reduce = cx.reduce_motion();
         let look = self.token(&self.shown.get(index)?.token).look;
@@ -536,7 +600,7 @@ impl TokenField {
             || shown.selected.is_running(now)
             || shown.leaving.is_some_and(|m| m.is_running(now));
         crate::seen::note(
-            &ElementId::Name(format!("{}-{}", self.id, shown.token.id()).into()),
+            &ElementId::Name(format!("{}-{}-{index}", self.id, shown.token.id()).into()),
             shown.arrival.value(now) * leaving,
         );
         Some(ChipNow {
@@ -554,6 +618,34 @@ impl TokenField {
             shown.arrival.is_running(now) || shown.leaving.is_some_and(|m| m.is_running(now))
         })
     }
+}
+
+/// Writes `copied` to the clipboard and remembers it, for a paste into a field.
+fn remember(copied: Copied, cx: &mut App) {
+    cx.write_to_clipboard(ClipboardItem::new_string_with_metadata(
+        copied.text.clone(),
+        copied.marker.clone(),
+    ));
+    cx.set_global(copied);
+}
+
+/// A copy without tokens: the last copy with tokens is no longer the clipboard's.
+fn forget(cx: &mut App) {
+    if cx.has_global::<Copied>() {
+        cx.remove_global::<Copied>();
+    }
+}
+
+/// A marker no other copy has: random, from the standard library's hasher seeds.
+fn marker() -> String {
+    use std::hash::BuildHasher as _;
+    let random = std::collections::hash_map::RandomState::new().hash_one(Instant::now());
+    format!("gpui-design-system/tokens/{random:016x}")
+}
+
+/// The UTF-16 offset of the byte `at` of `text`, as the input handler counts.
+fn utf16(text: &str, at: usize) -> usize {
+    text[..at].encode_utf16().count()
 }
 
 fn folding(now: Instant, reduce: bool) -> Motion {
@@ -723,13 +815,15 @@ impl RenderOnce for TokenText {
                             lines.push(Vec::new());
                         }
                         let words = lines.last_mut().expect("a line");
+                        // A word longer than the line wraps inside itself rather than out of
+                        // the text.
                         words.extend(words_of(line).map(|word| {
                             div()
-                                .h(px(LINE))
+                                .min_h(px(LINE))
+                                .max_w_full()
                                 .flex()
                                 .items_center()
-                                .whitespace_nowrap()
-                                .child(word.to_owned())
+                                .child(div().min_w_0().child(word.to_owned()))
                                 .into_any_element()
                         }));
                     }
