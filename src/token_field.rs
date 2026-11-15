@@ -13,8 +13,8 @@
 //! the text (Backspace, Delete, a cut, text typed over it, a token inserted over a selection that
 //! held it), an id that came back (a paste, an undo). An id is said once for all its copies:
 //! `Added` when its first copy arrives, `Removed` when its last copy leaves. What the application
-//! does itself ([`TokenField::insert`], [`TokenField::remove`], [`TokenField::set_value`]) is not
-//! said back to it, except the tokens an insertion replaces.
+//! does itself ([`TokenField::insert`], [`TokenField::remove`], [`TokenField::relabel`],
+//! [`TokenField::set_value`]) is not said back to it, except the tokens an insertion replaces.
 //!
 //! A copy that holds tokens is written to the clipboard as its text, with a marker of its own as
 //! the clipboard's metadata; a paste brings its tokens back only when that marker comes back, so
@@ -25,8 +25,9 @@
 //! A token inserted unfolds and fades in over [`ENTER`]; one removed by Backspace, Delete or
 //! [`TokenField::remove`] folds away and fades out over [`PANEL`] before its text goes (it is
 //! already out of the value and said removed). One that goes with a wider selection goes with
-//! that text. A token selected moves its fill over [`HOVER`]; in a `TokenText`, a token that is
-//! clicked fades its hover.
+//! that text. A token selected moves its fill over [`HOVER`]; one relabeled
+//! ([`TokenField::relabel`]) fades its ink out and back in with the new look over [`HOVER`]; in a
+//! `TokenText`, a token that is clicked fades its hover.
 
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -126,8 +127,31 @@ struct Shown {
     /// 1 to 0 while it folds away, after which its text goes.
     leaving: Option<Motion>,
     selected: Motion,
+    relabeled: Option<Relabeled>,
     /// Its width unfolded, measured as it is drawn.
     width: Rc<Cell<Pixels>>,
+}
+
+/// A chip's label changing: it fades out in the look it had, and in the new one.
+struct Relabeled {
+    from: TokenLook,
+    /// 0 to 1: `from` fades out up to half, the new look fades in after.
+    motion: Motion,
+}
+
+impl Relabeled {
+    fn drawn<'a>(&'a self, now: Instant, current: &'a TokenLook) -> &'a TokenLook {
+        if self.motion.value(now) < 0.5 {
+            &self.from
+        } else {
+            current
+        }
+    }
+
+    /// How much of its ink is drawn, 1 at rest.
+    fn ink(&self, now: Instant) -> f32 {
+        (2.0 * self.motion.value(now) - 1.0).abs()
+    }
 }
 
 /// What the chip of a token draws now.
@@ -138,6 +162,8 @@ struct ChipNow {
     shown: f32,
     /// How far it is selected, 0 to 1.
     selected: f32,
+    /// How much of its ink is drawn, 1 at rest, dipping as its label changes.
+    ink: f32,
     width: Rc<Cell<Pixels>>,
     running: bool,
 }
@@ -245,6 +271,46 @@ impl TokenField {
             }
         }
         self.finish_leaving(window, cx);
+        cx.notify();
+    }
+
+    /// Gives every token `id` of the text `look`, in place: no undo step of its own and no
+    /// `Change`, so the person's undo still reaches what they did (an application that numbers
+    /// its chips relabels the later ones when one is removed). The caret and the selection stay;
+    /// the chip's ink fades out and back in over [`HOVER`] with the new look. The text the input
+    /// holds keeps the label the token was put with. An id the field never held is left alone; one
+    /// that was removed takes the look for when an undo brings it back.
+    pub fn relabel(&mut self, id: &str, look: TokenLook, cx: &mut Context<Self>) {
+        let key = SharedString::from(id.to_owned());
+        let Some(old) = self.looks.get(&key).cloned() else {
+            return;
+        };
+        if old == look {
+            return;
+        }
+        let now = cx.background_executor().now();
+        let reduce = cx.reduce_motion();
+        for shown in self
+            .shown
+            .iter_mut()
+            .filter(|shown| shown.token.id() == &key)
+        {
+            shown.relabeled = Some(match shown.relabeled.take() {
+                // Still fading out of what it drew: it goes on, toward the newest look.
+                Some(run) if run.motion.value(now) < 0.5 => run,
+                // Already fading in the previous look: it fades out from how far that is shown.
+                previous => {
+                    let mut motion = Motion::settled(0.0);
+                    let began = previous.map_or(0.0, |run| 1.0 - run.motion.value(now));
+                    motion.play(began, 1.0, std::time::Duration::ZERO, HOVER, now, reduce);
+                    Relabeled {
+                        from: old.clone(),
+                        motion,
+                    }
+                }
+            });
+        }
+        self.looks.insert(key, look);
         cx.notify();
     }
 
@@ -357,6 +423,7 @@ impl TokenField {
                     arrival,
                     leaving: None,
                     selected: Motion::settled(0.0),
+                    relabeled: None,
                     width: Rc::new(Cell::new(px(0.))),
                 }
             })
@@ -565,7 +632,9 @@ impl TokenField {
                         .input
                         .update(cx, |input, cx| input.replace_with_token(inline, window, cx));
                     if put.is_ok() {
-                        self.looks.insert(token.id, token.look);
+                        // The field's own look wins: a copy made before a relabel must not undo
+                        // it. A paste only brings the look of an id the field does not know.
+                        self.looks.entry(token.id).or_insert(token.look);
                     }
                 }
             }
@@ -589,8 +658,26 @@ impl TokenField {
             .ok()?;
         let now = cx.background_executor().now();
         let reduce = cx.reduce_motion();
-        let look = self.token(&self.shown.get(index)?.token).look;
+        let current = self.token(&self.shown.get(index)?.token).look;
         let shown = &mut self.shown[index];
+        if shown
+            .relabeled
+            .as_ref()
+            .is_some_and(|r| !r.motion.is_running(now))
+        {
+            shown.relabeled = None;
+        }
+        let (look, ink, newest) =
+            shown
+                .relabeled
+                .as_ref()
+                .map_or((current.clone(), 1.0, true), |r| {
+                    (
+                        r.drawn(now, &current).clone(),
+                        r.ink(now),
+                        r.motion.value(now) >= 0.5,
+                    )
+                });
         let target = if selected { 1.0 } else { 0.0 };
         if shown.selected.target() != target {
             shown.selected.animate(target, HOVER, now, reduce);
@@ -598,16 +685,27 @@ impl TokenField {
         let leaving = shown.leaving.map_or(1.0, |m| m.value(now));
         let running = shown.arrival.is_running(now)
             || shown.selected.is_running(now)
+            || shown.relabeled.is_some()
             || shown.leaving.is_some_and(|m| m.is_running(now));
         crate::seen::note(
             &ElementId::Name(format!("{}-{}-{index}", self.id, shown.token.id()).into()),
             shown.arrival.value(now) * leaving,
+        );
+        crate::seen::note(
+            &ElementId::Name(format!("{}-{}-{index}-ink", self.id, shown.token.id()).into()),
+            ink,
+        );
+        // Which look the label is drawn in: 0 the one it had, 1 the newest.
+        crate::seen::note(
+            &ElementId::Name(format!("{}-{}-{index}-label", self.id, shown.token.id()).into()),
+            if newest { 1.0 } else { 0.0 },
         );
         Some(ChipNow {
             id: ElementId::NamedInteger(format!("{}-token", self.id).into(), shown.serial),
             look,
             shown: shown.arrival.value(now) * leaving,
             selected: shown.selected.value(now),
+            ink,
             width: shown.width.clone(),
             running,
         })
@@ -615,7 +713,12 @@ impl TokenField {
 
     fn moving(&self, now: Instant) -> bool {
         self.shown.iter().any(|shown| {
-            shown.arrival.is_running(now) || shown.leaving.is_some_and(|m| m.is_running(now))
+            shown.arrival.is_running(now)
+                || shown.leaving.is_some_and(|m| m.is_running(now))
+                || shown
+                    .relabeled
+                    .as_ref()
+                    .is_some_and(|r| r.motion.is_running(now))
         })
     }
 }
@@ -708,6 +811,7 @@ fn field_chip(
         look,
         shown,
         selected,
+        ink,
         width,
         running,
     } = state;
@@ -716,7 +820,7 @@ fn field_chip(
     }
     let p = palette(cx);
     let measured = width.clone();
-    let chip = chip(id, &look, token.line_height(), cx)
+    let chip = chip(id, &look, ink, token.line_height(), cx)
         .relative()
         .bg(mix(p.card2, p.sel, selected))
         .border_color(mix(p.line, p.acc, selected))
@@ -743,8 +847,9 @@ fn field_chip(
         .into_any_element()
 }
 
-/// The chip both draw: its glyph, its label, its detail, `height` high.
-fn chip(id: ElementId, look: &TokenLook, height: Pixels, cx: &App) -> Stateful<Div> {
+/// The chip both draw: its glyph, its label, its detail, `height` high, its ink drawn `ink` (0 to
+/// 1) of the way.
+fn chip(id: ElementId, look: &TokenLook, ink: f32, height: Pixels, cx: &App) -> Stateful<Div> {
     let p = palette(cx);
     div()
         .id(id)
@@ -757,14 +862,14 @@ fn chip(id: ElementId, look: &TokenLook, height: Pixels, cx: &App) -> Stateful<D
         .px(px(6.))
         .rounded(px(5.))
         .border_1()
-        .text_color(p.text)
+        .text_color(p.text.opacity(ink))
         .whitespace_nowrap()
         .when_some(look.glyph, |chip, glyph| {
-            chip.child(icon(glyph).size(px(12.)).text_color(p.faint))
+            chip.child(icon(glyph).size(px(12.)).text_color(p.faint.opacity(ink)))
         })
         .child(look.label.clone())
         .when_some(look.detail.clone(), |chip, detail| {
-            chip.child(div().text_color(p.faint).child(detail))
+            chip.child(div().text_color(p.faint.opacity(ink)).child(detail))
         })
 }
 
@@ -831,7 +936,7 @@ impl RenderOnce for TokenText {
                 Piece::Token(token) => {
                     let id = ElementId::NamedInteger(format!("{}-token", self.id).into(), tokens);
                     tokens += 1;
-                    let chip = chip(id, &token.look, px(LINE - 2.), cx)
+                    let chip = chip(id, &token.look, 1.0, px(LINE - 2.), cx)
                         .border_color(p.line)
                         .bg(p.card2);
                     let element = match &self.on_click {

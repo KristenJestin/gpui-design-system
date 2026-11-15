@@ -142,9 +142,16 @@ TokenText::new("message-1", pieces).on_token_click(|id, window, cx| { /* open it
 
 The events are per id, not per copy: `Added(id)` when the first copy of an id comes into the
 text, `Removed(id)` when its last copy leaves it. What the application does itself (`insert`,
-`remove`, `set_value`) is not said back to it, except the tokens an `insert` replaces over a
+`remove`, `relabel`, `set_value`) is not said back to it, except the tokens an `insert` replaces over a
 selection, which are said `Removed`. A copy with tokens pasted into another field brings its chips
 there, said `Added` there; the same words copied by another application stay text.
+
+`relabel(id, look)` gives the chips of an id a new look in place (a list of pictures numbered
+again once one is removed): no undo step, no `Change`, the caret and the selection stay, and the
+chip's ink fades out and back in over `HOVER`, so the person's undo still reaches their removal.
+The text the input holds keeps the label the token was put with. The field's own look wins: a
+paste (a copy made before the relabel) keeps the look the field holds for the id, and only brings
+the look of an id the field does not know.
 
 ## The rules the kit holds
 
