@@ -3,7 +3,8 @@
 //! folds away when the selection empties, still saying what it held.
 //!
 //! Its parts, for a test: the bar `<id>`, its count `<id>-count` (labelled "2 selected") and its
-//! "Clear" `<id>-clear`.
+//! "Clear" `<id>-clear`, and its "Select all shown" `<id>-select-all` when the screen gave it a
+//! handler.
 
 use std::rc::Rc;
 
@@ -27,6 +28,7 @@ pub struct BulkBar {
     gap: f32,
     actions: Vec<AnyElement>,
     on_clear: Option<OnClear>,
+    on_select_all: Option<OnClear>,
 }
 
 impl BulkBar {
@@ -38,6 +40,7 @@ impl BulkBar {
             gap: 0.0,
             actions: Vec::new(),
             on_clear: None,
+            on_select_all: None,
         }
     }
 
@@ -58,6 +61,13 @@ impl BulkBar {
         self.on_clear = Some(Rc::new(f));
         self
     }
+
+    /// Called when "Select all shown" is clicked, beside "Clear": the screen selects every row it
+    /// shows. Without it the bar has no such button.
+    pub fn on_select_all(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.on_select_all = Some(Rc::new(f));
+        self
+    }
 }
 
 impl RenderOnce for BulkBar {
@@ -69,6 +79,7 @@ impl RenderOnce for BulkBar {
             count: SharedString::default(),
             actions: self.actions,
             on_clear: self.on_clear,
+            on_select_all: self.on_select_all,
         };
         presence_of(self.id, line, move |count| {
             Shown { count, ..bar }.into_any_element()
@@ -84,6 +95,7 @@ struct Shown {
     count: SharedString,
     actions: Vec<AnyElement>,
     on_clear: Option<OnClear>,
+    on_select_all: Option<OnClear>,
 }
 
 impl RenderOnce for Shown {
@@ -95,6 +107,10 @@ impl RenderOnce for Shown {
         if let Some(on_clear) = self.on_clear {
             clear = clear.on_click(move |_, window, cx| on_clear(window, cx));
         }
+        let select_all = self.on_select_all.map(|on_select_all| {
+            Button::quiet(part(&self.id, "select-all"), "Select all shown")
+                .on_click(move |_, window, cx| on_select_all(window, cx))
+        });
         div().w_full().child(
             div()
                 .w_full()
@@ -122,6 +138,7 @@ impl RenderOnce for Shown {
                 )
                 .children(self.actions)
                 .child(div().flex_1())
+                .children(select_all)
                 .child(clear),
         )
     }
