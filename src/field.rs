@@ -169,7 +169,7 @@ impl RenderOnce for Field {
                 .test_support()
                 .into_any_element()
         })
-        .gap(px(6.));
+        .space(px(6.));
         let warning_id = part(&self.id, "warning");
         let warning = presence_of(
             part(&self.id, "warning-fold"),
@@ -186,15 +186,21 @@ impl RenderOnce for Field {
                     .into_any_element()
             },
         )
-        .gap(px(6.));
+        .space(px(6.));
+        // The label, the control and the hint gap 6 px; the error and the warning bring their own.
         div()
             .id(self.id)
             .flex()
             .flex_col()
-            .gap(px(6.))
-            .child(label)
-            .child(self.control)
-            .children(hint)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .child(label)
+                    .child(self.control)
+                    .children(hint),
+            )
             .child(error)
             .child(warning)
     }

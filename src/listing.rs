@@ -13,7 +13,7 @@ use std::time::Instant;
 use gpui_kit::{AnyElement, App, ElementId, IntoElement, Pixels, RenderOnce, Window};
 
 use crate::motion::{MAX_STAGGER, Motion, PANEL, STAGGER};
-use crate::reveal::{Shown, drive, shown_frame};
+use crate::reveal::{Around, Shown, drive, shown_frame};
 
 /// Where a row is in its coming and going: what [`Item`] needs to animate it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -263,7 +263,10 @@ impl RenderOnce for Item {
             !self.placement.gone,
             self.rising,
             &at,
-            self.gap,
+            Around {
+                gap: self.gap,
+                space: 0.,
+            },
             offset,
             self.content,
         )
