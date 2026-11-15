@@ -19,6 +19,8 @@ use crate::reveal::{Around, Shown, drive, shown_frame};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Placement {
     gone: bool,
+    /// A row of the first `sync` of a list that opens at rest: drawn settled, with no entrance.
+    rest: bool,
     stagger: usize,
     /// How many rows it moved (positive: up) and the move it belongs to.
     shift: Option<(isize, u64)>,
@@ -48,6 +50,7 @@ pub struct Row<'a, T> {
 pub struct Listing<T> {
     slots: Vec<Slot<T>>,
     started: bool,
+    at_rest: bool,
     moves: u64,
 }
 
@@ -56,13 +59,19 @@ impl<T> Default for Listing<T> {
         Self {
             slots: Vec::new(),
             started: false,
+            at_rest: false,
             moves: 0,
         }
     }
 }
 
 impl<T> Listing<T> {
-    pub fn at_rest(self) -> Self {
+    /// A list that opens on rows it already has: the rows of the first [`sync`](Self::sync) are
+    /// drawn at full height from the first frame, with no entrance and no stagger (a dialog that
+    /// fades in as a whole should not also see its rows unfold). The rows that come, go or move
+    /// afterwards unfold, fold away and slide as in any other list.
+    pub fn at_rest(mut self) -> Self {
+        self.at_rest = true;
         self
     }
 
@@ -155,7 +164,8 @@ impl<T> Listing<T> {
                     gone: None,
                     placement: Placement {
                         gone: false,
-                        stagger: if first { at } else { 0 },
+                        rest: first && self.at_rest,
+                        stagger: if first && !self.at_rest { at } else { 0 },
                         shift: None,
                     },
                 },
@@ -233,7 +243,12 @@ impl RenderOnce for Item {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let key = ElementId::NamedChild(Arc::new(self.id.clone()), "item".into());
         let delay = STAGGER * self.placement.stagger.min(MAX_STAGGER) as u32;
+        let rest = self.placement.rest;
         let state = window.use_keyed_state(key, cx, move |_, cx| {
+            if rest {
+                // Settled at 1, so that a removal has a height to fold from.
+                return Shown::new(Motion::settled(1.0));
+            }
             let mut motion = Motion::settled(0.0);
             let now = cx.background_executor().now();
             motion.play(0.0, 1.0, delay, PANEL, now, cx.reduce_motion());
