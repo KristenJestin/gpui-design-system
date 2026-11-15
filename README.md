@@ -112,6 +112,36 @@ impl AssetSource for Assets {
 }
 ```
 
+## Tokens in a text
+
+`TokenField` is a multi-line text field that holds tokens where they were put: a chip (an
+optional glyph, a label, an optional detail) with an id of the application's. The caret steps
+over one, Backspace or Delete removes it whole, a copy keeps it (pasted elsewhere, it is its
+label). `TokenText` draws the same chips in a text that is only read, and says which one is
+clicked.
+
+```rust
+use gpui_design_system::{Icon, Piece, Token, TokenEvent, TokenField, TokenLook, TokenText};
+
+let field = cx.new(|cx| TokenField::new("draft", window, cx));
+cx.subscribe(&field, |_, _, event: &TokenEvent, _| match event {
+    TokenEvent::Removed(id) => { /* the person removed it: drop what it stands for */ }
+    TokenEvent::Added(id) => { /* a paste or an undo brought it back */ }
+})
+.detach();
+
+// A picture pasted: its chip at the caret.
+let picture = Token::new("picture-1", TokenLook::new("Image 1").glyph(Icon::File).detail("photo.png · 2 MB"));
+field.update(cx, |field, cx| field.insert(picture, window, cx))?;
+
+// Sent: the text and the tokens in their order.
+let pieces: Vec<Piece> = field.read(cx).value(cx);
+// Shown in the conversation, its chips clicked.
+TokenText::new("message-1", pieces).on_token_click(|id, window, cx| { /* open it */ });
+```
+
+What the application does itself (`insert`, `remove`, `set_value`) is not said back to it.
+
 ## The rules the kit holds
 
 Its tests are its contract: GPUI's own `.hover(..)` is refused (every colour fades), everything
