@@ -246,6 +246,8 @@ impl RenderOnce for Shown {
 pub struct Grouped<G, T> {
     name: SharedString,
     lists: Vec<(G, Listing<T>)>,
+    started: bool,
+    at_rest: bool,
 }
 
 impl<G: Clone + PartialEq, T> Grouped<G, T> {
@@ -254,7 +256,17 @@ impl<G: Clone + PartialEq, T> Grouped<G, T> {
         Self {
             name: name.into(),
             lists: Vec::new(),
+            started: false,
+            at_rest: false,
         }
+    }
+
+    /// Rows that open on data the screen already has: the rows of the first
+    /// [`sync`](Self::sync) are drawn at rest, as [`Listing::at_rest`] says; the rows that come,
+    /// go or move to another group afterwards unfold and fold away as ever.
+    pub fn at_rest(mut self) -> Self {
+        self.at_rest = true;
+        self
     }
 
     /// The groups in the order they are shown, each with its rows.
@@ -280,12 +292,19 @@ impl<G: Clone + PartialEq, T> Grouped<G, T> {
         now: std::time::Instant,
         reduce: bool,
     ) {
+        let first = !self.started;
+        self.started = true;
+        let at_rest = first && self.at_rest;
         let mut old = std::mem::take(&mut self.lists);
         let mut lists: Vec<(G, Listing<T>)> = groups
             .into_iter()
             .map(|group| {
                 let at = old.iter().position(|(known, _)| *known == group);
-                let list = at.map(|at| old.remove(at).1).unwrap_or_default();
+                // A group that shows up later is a row's new place, not the screen opening.
+                let list = at.map(|at| old.remove(at).1).unwrap_or_else(|| {
+                    let list = Listing::default();
+                    if at_rest { list.at_rest() } else { list }
+                });
                 (group, list)
             })
             .collect();
