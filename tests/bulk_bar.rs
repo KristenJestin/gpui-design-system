@@ -21,12 +21,14 @@ const GAP: f32 = 12.;
 struct Host {
     selected: usize,
     set: Rc<Cell<usize>>,
+    all: Rc<Cell<usize>>,
 }
 
 impl Render for Host {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let this = cx.entity().downgrade();
         let set = self.set.clone();
+        let all = self.all.clone();
         div()
             .w(px(500.))
             .flex()
@@ -40,6 +42,10 @@ impl Render for Host {
                         move |_, _, _| set.set(set.get() + 1)
                     }))
                     .action(Button::secondary("bar-allowed", "Allowed"))
+                    .on_select_all({
+                        let all = all.clone();
+                        move |_, _| all.set(all.get() + 1)
+                    })
                     .on_clear(move |_, cx| {
                         this.update(cx, |this, cx| {
                             this.selected = 0;
@@ -62,6 +68,7 @@ fn host(
     let (view, cx) = cx.add_window_view(move |_, _| Host {
         selected,
         set: Rc::default(),
+        all: Rc::default(),
     });
     cx.update(|window, cx| window.render_frame(cx));
     advance(cx, PANEL * 2);
@@ -207,4 +214,27 @@ fn the_space_the_bulk_bar_takes_gap_included_grows_over_the_fold(cx: &mut TestAp
     );
     assert_eq!(after(cx), none, "no jump at the end");
     assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn the_bulk_bar_selects_all_shown_beside_clear(cx: &mut TestAppContext) {
+    let (view, cx) = host(2, false, cx);
+    assert_eq!(
+        label("bar-select-all", cx),
+        Some("Select all shown".to_owned())
+    );
+    let (all, clear) = cx.update(|window, _| {
+        (
+            window.find("bar-select-all").bounds(),
+            window.find("bar-clear").bounds(),
+        )
+    });
+    assert!(all.right() <= clear.left(), "it sits before Clear");
+    cx.update(|window, cx| window.click("bar-select-all", cx));
+    assert_eq!(view.read_with(cx, |this, _| this.all.get()), 1);
+    assert_eq!(
+        view.read_with(cx, |this, _| this.selected),
+        2,
+        "it selects nothing by itself"
+    );
 }

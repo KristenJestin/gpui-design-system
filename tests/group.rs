@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use common::{advance, init, pending_frames};
 use gpui_design_system::motion::{HOVER, PANEL};
-use gpui_design_system::{Group, Grouped, Item};
+use gpui_design_system::{CheckState, Group, Grouped, Item};
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
     Context, Entity, InteractiveElement as _, IntoElement, ParentElement, Render, Styled,
@@ -26,6 +26,9 @@ struct Host {
     /// Each row: its key and its group.
     rows: Vec<(&'static str, &'static str)>,
     folded: Vec<&'static str>,
+    /// What the tick of the "judged" header says, and what its clicks asked for.
+    pick: CheckState,
+    asked: Vec<CheckState>,
 }
 
 impl Render for Host {
@@ -43,8 +46,15 @@ impl Render for Host {
         let mut column = div().w(px(400.)).flex().flex_col().gap(px(GAP));
         for (list, (group, title, sentence)) in self.grouped.groups().zip(GROUPS) {
             let this = this.clone();
+            let pick = this.clone();
+            let mut header = Group::new(group, title, list.len());
+            if group == "judged" {
+                header = header.select(self.pick, move |asked, _, cx| {
+                    pick.update(cx, |this, _| this.asked.push(asked)).ok();
+                });
+            }
             column = column.child(
-                Group::new(group, title, list.len())
+                header
                     .gap(px(GAP))
                     .sentence(sentence)
                     .open(!self.folded.contains(&group))
@@ -80,6 +90,8 @@ fn host<'a>(
         grouped: Grouped::new("rows"),
         rows,
         folded: Vec::new(),
+        pick: CheckState::Empty,
+        asked: Vec::new(),
     });
     cx.update(|window, cx| window.render_frame(cx));
     advance(cx, PANEL * 2);
@@ -378,4 +390,41 @@ fn a_group_jumps_with_reduced_motion(cx: &mut TestAppContext) {
     advance(cx, Duration::from_millis(16));
     assert!(!shown("asked", cx), "and gone at once");
     assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn a_group_tick_asks_for_the_next_state_and_does_not_fold_the_group(cx: &mut TestAppContext) {
+    let (view, cx) = host(&[("a", "judged"), ("b", "judged")], false, cx);
+    assert_eq!(
+        cx.update(|window, _| window.find("judged-pick").label().map(str::to_owned)),
+        Some("Select every row of Judged".to_owned())
+    );
+    cx.update(|window, cx| window.click("judged-pick", cx));
+    assert_eq!(
+        view.read_with(cx, |this, _| this.asked.clone()),
+        [CheckState::Checked]
+    );
+    assert!(
+        view.read_with(cx, |this, _| this.folded.is_empty()),
+        "the tick is not the header's click"
+    );
+
+    view.update(cx, |this, cx| {
+        this.pick = CheckState::Mixed;
+        cx.notify();
+    });
+    cx.update(|window, cx| window.render_frame(cx));
+    cx.update(|window, cx| window.click("judged-pick", cx));
+    assert_eq!(
+        view.read_with(cx, |this, _| this.asked.clone()),
+        [CheckState::Checked, CheckState::Checked],
+        "a mixed tick asks for all"
+    );
+    cx.update(|window, _| assert_eq!(window.find("judged-pick").value(), Some("mixed")));
+}
+
+#[gpui_kit::test]
+fn a_group_without_a_tick_draws_none(cx: &mut TestAppContext) {
+    let (_, cx) = host(&[("a", "asked")], false, cx);
+    assert!(!shown("asked-pick", cx));
 }

@@ -15,6 +15,7 @@ use gpui_kit::{
     RenderOnce, SharedString, StatefulInteractiveElement, Styled, TestSupportExt, Window, div, px,
 };
 
+use crate::checkbox::{CheckState, Checkbox};
 use crate::color::mix;
 use crate::cut::tipped_when_cut;
 use crate::ids::part;
@@ -44,8 +45,13 @@ pub struct Group {
     open: bool,
     gap: f32,
     on_toggle: Option<OnToggle>,
+    select: Option<Select>,
     rows: Vec<AnyElement>,
 }
+
+/// The tick of a group's header: what it says of the rows and what a click on it asks for.
+type OnSelect = Rc<dyn Fn(CheckState, &mut Window, &mut App) + 'static>;
+type Select = (CheckState, OnSelect);
 
 impl Group {
     /// The group `id` called `title`, holding `count` rows.
@@ -58,6 +64,7 @@ impl Group {
             open: true,
             gap: 0.0,
             on_toggle: None,
+            select: None,
             rows: Vec::new(),
         }
     }
@@ -85,6 +92,18 @@ impl Group {
         self.on_toggle = Some(Rc::new(f));
         self
     }
+
+    /// A tick in the header, before the name, for the rows of the group: empty, mixed when part
+    /// of them is ticked, checked when all are. `<id>-pick`. `f` is called with the state a click
+    /// asks for ([`CheckState::next`]); the header is not folded by that click.
+    pub fn select(
+        mut self,
+        state: CheckState,
+        f: impl Fn(CheckState, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.select = Some((state, Rc::new(f)));
+        self
+    }
 }
 
 impl ParentElement for Group {
@@ -103,6 +122,7 @@ impl RenderOnce for Group {
             open,
             gap,
             on_toggle,
+            select,
             rows,
             ..
         } = self;
@@ -112,6 +132,7 @@ impl RenderOnce for Group {
             sentence,
             open,
             on_toggle,
+            select,
             rows,
             count: SharedString::default(),
         };
@@ -130,6 +151,7 @@ struct Shown {
     sentence: Option<SharedString>,
     open: bool,
     on_toggle: Option<OnToggle>,
+    select: Option<Select>,
     rows: Vec<AnyElement>,
     count: SharedString,
 }
@@ -149,6 +171,18 @@ impl RenderOnce for Shown {
             .items_center()
             .gap(space::SM)
             .child(chevron(part(&self.id, "chevron"), open, window, cx))
+            .children(self.select.map(|(state, on_select)| {
+                let pick = part(&self.id, "pick");
+                // The header's own click folds the group; the tick is not that click.
+                div()
+                    .id(part(&self.id, "pick-slot"))
+                    .flex_none()
+                    .on_click(|_, _, cx| cx.stop_propagation())
+                    .child(
+                        Checkbox::new(pick, state, format!("Select every row of {}", self.title))
+                            .on_change(move |state, window, cx| on_select(state, window, cx)),
+                    )
+            }))
             .child(
                 div()
                     .id(part(&self.id, "title"))

@@ -82,6 +82,11 @@ const NOT_CONTROLS: &[(&str, &str, &str)] = &[
         "a call on a `Button`, which sets its own hand while it can act",
     ),
     (
+        "src/bulk_bar.rs",
+        ".on_click(move |_, window, cx| on_select_all(window, cx))",
+        "a call on a `Button`, which sets its own hand while it can act",
+    ),
+    (
         "src/toast.rs",
         ".on_click(move |_, window, cx| {",
         "a call on a `Button`, which sets its own hand while it can act",
