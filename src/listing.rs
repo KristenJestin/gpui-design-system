@@ -62,6 +62,10 @@ impl<T> Default for Listing<T> {
 }
 
 impl<T> Listing<T> {
+    pub fn at_rest(self) -> Self {
+        self
+    }
+
     /// The rows now, in order: the ones that left sit where they were, folding away.
     pub fn rows(&self) -> impl Iterator<Item = Row<'_, T>> {
         self.slots.iter().map(|slot| Row {

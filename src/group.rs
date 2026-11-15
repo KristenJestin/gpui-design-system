@@ -223,6 +223,10 @@ impl<G: Clone + PartialEq, T> Grouped<G, T> {
         }
     }
 
+    pub fn at_rest(self) -> Self {
+        self
+    }
+
     /// The groups in the order they are shown, each with its rows.
     pub fn groups(&self) -> impl Iterator<Item = GroupRows<'_, G, T>> {
         self.lists
