@@ -12,8 +12,9 @@
 use std::path::PathBuf;
 
 use gpui_design_system::{
-    Badge, Button, Card, Drawer, Fold, Icon, Icons, Identity, ListRow, PulsingLabel, Side, TreeRow,
-    Type, enter, icon, meta, palette, section_label, tree_children,
+    Badge, Button, Card, Drawer, Fold, Icon, Icons, Identity, ListRow, Piece, PulsingLabel, Side,
+    Token, TokenField, TokenLook, TokenText, TreeRow, Type, enter, icon, meta, palette,
+    section_label, tree_children,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -39,8 +40,10 @@ fn main() {
             window_bounds: Some(WindowBounds::Maximized(bounds)),
             ..Default::default()
         };
-        gpui_kit::open_window(options, cx, |_, cx| cx.new(|cx| Gallery::new(drawer, cx)))
-            .expect("a window");
+        gpui_kit::open_window(options, cx, |window, cx| {
+            cx.new(|cx| Gallery::new(drawer, window, cx))
+        })
+        .expect("a window");
     });
 }
 
@@ -76,6 +79,30 @@ struct Gallery {
     open_fold: Entity<Fold>,
     shut_fold: Entity<Fold>,
     drawer: Entity<Drawer>,
+    draft: Entity<TokenField>,
+}
+
+/// A text with two pictures and a command among its words, as a composer holds one.
+fn draft() -> Vec<Piece> {
+    let picture = |n: usize, name: &str| {
+        Piece::Token(Token::new(
+            format!("picture-{n}"),
+            TokenLook::new(format!("Image {n}"))
+                .glyph(Icon::File)
+                .detail(format!("{name} · 1.2 MB")),
+        ))
+    };
+    vec![
+        Piece::Token(Token::new(
+            "command-review",
+            TokenLook::new("/review").glyph(Icon::Slash),
+        )),
+        Piece::Text(" this one is fine, ".into()),
+        picture(1, "header.png"),
+        Piece::Text(" but in ".into()),
+        picture(2, "footer.png"),
+        Piece::Text(" the text overflows.".into()),
+    ]
 }
 
 struct Steps;
@@ -125,7 +152,7 @@ impl Render for DrawerContent {
 }
 
 impl Gallery {
-    fn new(drawer_open: bool, cx: &mut Context<Self>) -> Self {
+    fn new(drawer_open: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let member = |name, model, doing, mark, state| Member {
             name,
             model,
@@ -173,12 +200,18 @@ impl Gallery {
             }
             drawer
         });
+        let draft = cx.new(|cx| {
+            let mut field = TokenField::new("draft", window, cx);
+            field.set_value(draft(), window, cx).expect("a valid draft");
+            field
+        });
         Self {
             members,
             thinking,
             open_fold,
             shut_fold,
             drawer,
+            draft,
         }
     }
 }
@@ -479,6 +512,19 @@ impl Render for Gallery {
                 ),
         );
 
+        let inline_tokens = panel("Inline tokens", cx)
+            .child(
+                div()
+                    .px(px(10.))
+                    .py(px(8.))
+                    .rounded(px(8.))
+                    .bg(p.field)
+                    .border_1()
+                    .border_color(p.field_line)
+                    .child(self.draft.clone()),
+            )
+            .child(TokenText::new("sent", draft()).on_token_click(|_, _, _| {}));
+
         div()
             .size_full()
             .relative()
@@ -497,7 +543,8 @@ impl Render for Gallery {
                             .flex()
                             .flex_col()
                             .gap(px(18.))
-                            .child(type_sample),
+                            .child(type_sample)
+                            .child(inline_tokens),
                     )
                     .child(
                         div()
