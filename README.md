@@ -140,7 +140,11 @@ let pieces: Vec<Piece> = field.read(cx).value(cx);
 TokenText::new("message-1", pieces).on_token_click(|id, window, cx| { /* open it */ });
 ```
 
-What the application does itself (`insert`, `remove`, `set_value`) is not said back to it.
+The events are per id, not per copy: `Added(id)` when the first copy of an id comes into the
+text, `Removed(id)` when its last copy leaves it. What the application does itself (`insert`,
+`remove`, `set_value`) is not said back to it, except the tokens an `insert` replaces over a
+selection, which are said `Removed`. A copy with tokens pasted into another field brings its chips
+there, said `Added` there; the same words copied by another application stay text.
 
 ## The rules the kit holds
 
