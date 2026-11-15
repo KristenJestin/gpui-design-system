@@ -103,8 +103,7 @@ impl RenderOnce for SetHere {
         div()
             .flex()
             .flex_col()
-            .gap(space::SM)
             .child(self.control)
-            .child(presence(part("block"), self.set, line).gap(space::SM))
+            .child(presence(part("block"), self.set, line).space(space::SM))
     }
 }

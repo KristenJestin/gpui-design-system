@@ -23,7 +23,7 @@ use crate::color::mix;
 use crate::icons::{Icon, icon};
 use crate::interact::selectable;
 use crate::motion::Motion;
-use crate::reveal::{Shown, changing, drive, shown_frame};
+use crate::reveal::{Around, Shown, changing, drive, shown_frame};
 use crate::theme::palette;
 
 /// The room between the label and its field.
@@ -185,7 +185,7 @@ impl RenderOnce for ChoiceRow {
                     open,
                     false,
                     &at,
-                    0.,
+                    Around::default(),
                     0.,
                     slot.into_any_element(),
                 );

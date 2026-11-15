@@ -234,8 +234,16 @@ pub(crate) fn drive(
     }
 }
 
-/// `content` folded to `t`, with the `gap` its parent puts between siblings folding with it, so
-/// that nothing jumps when the block ends. Nothing at all while it is closed and at rest. With
+/// The space that folds with a block: the `gap` its parent puts between siblings, or a `space`
+/// of its own above it.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Around {
+    pub gap: f32,
+    pub space: f32,
+}
+
+/// `content` folded to `t`, with the space `around` it folding with it so that nothing jumps when
+/// the block ends: the gap its parent puts between siblings, or a margin of its own. Nothing at all while it is closed and at rest. With
 /// `rising`, a block that arrives is at its full size from its first frame and rises into place
 /// while it fades in, as the design has a row enter; it still folds away when it leaves.
 pub(crate) fn shown_frame(
@@ -243,7 +251,7 @@ pub(crate) fn shown_frame(
     open: bool,
     rising: bool,
     at: &Driven,
-    gap: f32,
+    around: Around,
     offset: f32,
     content: AnyElement,
 ) -> AnyElement {
@@ -282,7 +290,7 @@ pub(crate) fn shown_frame(
         .w_full()
         .relative()
         .top(px(offset))
-        .mt(px(-gap * (1.0 - t)))
+        .mt(px(around.space * t - around.gap * (1.0 - t)))
         .child(fold_frame(id, open, running, t, height, content))
         .into_any_element()
 }
@@ -296,6 +304,7 @@ pub fn presence(id: impl Into<ElementId>, present: bool, content: impl IntoEleme
         id: id.into(),
         present,
         gap: 0.0,
+        space: 0.0,
         content: content.into_any_element(),
     }
 }
@@ -305,13 +314,26 @@ pub struct Presence {
     id: ElementId,
     present: bool,
     gap: f32,
+    space: f32,
     content: AnyElement,
 }
 
 impl Presence {
     /// The gap the parent flex puts between its children, which comes and goes with the block.
+    /// It is the parent's, not the block's: a parent without that gap draws nothing there, and a
+    /// parent with another one jumps. Prefer [`space`](Self::space).
     pub fn gap(mut self, gap: Pixels) -> Self {
         self.gap = f32::from(gap);
+        self.space = 0.0;
+        self
+    }
+
+    /// The space above the block, its own margin: it unfolds and folds away with the block
+    /// whatever its parent is, so the parent is a column without a gap (a gap it has would show
+    /// at once and leave with a jump). Replaces [`gap`](Self::gap).
+    pub fn space(mut self, space: Pixels) -> Self {
+        self.space = f32::from(space);
+        self.gap = 0.0;
         self
     }
 }
@@ -324,7 +346,18 @@ impl RenderOnce for Presence {
             Shown::new(Motion::settled(if open { 1.0 } else { 0.0 }))
         });
         let at = drive(&state, open, window, cx);
-        shown_frame(self.id, open, false, &at, self.gap, 0.0, self.content)
+        shown_frame(
+            self.id,
+            open,
+            false,
+            &at,
+            Around {
+                gap: self.gap,
+                space: self.space,
+            },
+            0.0,
+            self.content,
+        )
     }
 }
 
@@ -339,6 +372,7 @@ pub fn presence_of(
         id: id.into(),
         line,
         gap: 0.0,
+        space: 0.0,
         build: Box::new(build),
     }
 }
@@ -348,6 +382,7 @@ pub struct PresenceOf {
     id: ElementId,
     line: Option<SharedString>,
     gap: f32,
+    space: f32,
     build: Box<dyn FnOnce(SharedString) -> AnyElement>,
 }
 
@@ -355,6 +390,14 @@ impl PresenceOf {
     /// See [`Presence::gap`].
     pub fn gap(mut self, gap: Pixels) -> Self {
         self.gap = f32::from(gap);
+        self.space = 0.0;
+        self
+    }
+
+    /// See [`Presence::space`].
+    pub fn space(mut self, space: Pixels) -> Self {
+        self.space = f32::from(space);
+        self.gap = 0.0;
         self
     }
 }
@@ -378,7 +421,11 @@ impl RenderOnce for PresenceOf {
         } else {
             div().into_any_element()
         };
-        shown_frame(self.id, open, false, &at, self.gap, 0.0, content)
+        let around = Around {
+            gap: self.gap,
+            space: self.space,
+        };
+        shown_frame(self.id, open, false, &at, around, 0.0, content)
     }
 }
 
