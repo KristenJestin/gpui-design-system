@@ -17,6 +17,10 @@
 //! actions and a close button on its right, no Cancel and no footer, and the body takes all the
 //! height left, for its owner to scroll.
 //!
+//! A [`fitting`](Modal::fitting) one is the large one wrapped around its body, for looking at
+//! something whose size is known (a picture): the dialog is as big as what it holds, at least wide
+//! enough for its header and at most the window less its margin, and its owner sizes the body.
+//!
 //! A [`search`](Modal::search) is the same dialog for finding something (the window's quick
 //! switcher): near the top of the window, where the eye already is, its height following its
 //! results; its field above the results, which scroll; no title drawn and no Cancel.
@@ -66,6 +70,7 @@ pub struct Modal {
     takes_focus: bool,
     search: bool,
     large: bool,
+    fit: bool,
     above: Vec<AnyElement>,
     scroll: Option<ScrollHandle>,
     on_key: Option<KeyHandler>,
@@ -89,6 +94,7 @@ impl Modal {
             takes_focus: false,
             search: false,
             large: false,
+            fit: false,
             above: Vec::new(),
             scroll: None,
             on_key: None,
@@ -107,6 +113,16 @@ impl Modal {
     /// beside a close button, there is no Cancel, and the body takes the height left.
     pub fn large(mut self) -> Self {
         self.large = true;
+        self
+    }
+
+    /// The large modal's header around a body of the owner's size: the dialog wraps it (at least
+    /// [`space::DIALOG_FIT_MIN`] wide so that the header fits, at most the window less its
+    /// margin) instead of filling the window. The owner keeps its body within what the window
+    /// leaves it.
+    pub fn fitting(mut self) -> Self {
+        self.large = true;
+        self.fit = true;
         self
     }
 
@@ -257,6 +273,7 @@ impl RenderOnce for Modal {
         let scrim = dismiss_on_navigate(scrim, close.clone());
         let search = self.search;
         let large = self.large;
+        let fit = self.fit;
         let title = self.title.clone();
         let (header_actions, footer_actions) = if large {
             (std::mem::take(&mut self.actions), Vec::new())
@@ -264,7 +281,10 @@ impl RenderOnce for Modal {
             (Vec::new(), std::mem::take(&mut self.actions))
         };
         let on_close_button = close.clone();
-        let width = if large {
+        let width = if fit {
+            // Not fixed: the dialog takes its body's width.
+            space::DIALOG_FIT_MIN
+        } else if large {
             viewport.width - space::XL * 2.
         } else if self.wide || search {
             space::DIALOG_WIDE
@@ -342,7 +362,8 @@ impl RenderOnce for Modal {
                 // The owner's body takes the height and scrolls what it holds itself.
                 div()
                     .id(part(&self.id, "body"))
-                    .flex_1()
+                    .when(fit, |d| d.flex_initial())
+                    .when(!fit, |d| d.flex_1())
                     .min_h_0()
                     .px(px(24.))
                     .pt(px(16.))
@@ -392,9 +413,10 @@ impl RenderOnce for Modal {
             .relative()
             .top(px(RISE * (1.0 - t)))
             .opacity(t)
-            .w(width)
+            .when(fit, |d| d.min_w(width))
+            .when(!fit, |d| d.w(width))
             .max_w(viewport.width - px(48.))
-            .when(large, |d| d.h(viewport.height - space::XL * 2.))
+            .when(large && !fit, |d| d.h(viewport.height - space::XL * 2.))
             .max_h(if search {
                 viewport.height - space::XXXL * 2.
             } else {

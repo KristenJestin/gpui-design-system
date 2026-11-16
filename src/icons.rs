@@ -93,6 +93,8 @@ pub enum Icon {
     Chevron,
     /// Adds: a new item.
     Plus,
+    /// Takes away one step: the opposite of Plus, zoom out.
+    Minus,
     /// Searches.
     Search,
     /// Notifications.
@@ -170,12 +172,13 @@ pub enum Icon {
 }
 
 impl Icon {
-    pub const ALL: [Self; 42] = [
+    pub const ALL: [Self; 43] = [
         Self::Folder,
         Self::Branch,
         Self::Repository,
         Self::Chevron,
         Self::Plus,
+        Self::Minus,
         Self::Search,
         Self::Bell,
         Self::OpenInEditor,
@@ -228,6 +231,7 @@ impl Icon {
             Self::Repository => IconName::Book,
             Self::Chevron => IconName::ChevronDown,
             Self::Plus => IconName::Plus,
+            Self::Minus => IconName::Minus,
             Self::Search => IconName::Search,
             Self::Bell => IconName::Bell,
             Self::OpenInEditor => IconName::ExternalLink,
