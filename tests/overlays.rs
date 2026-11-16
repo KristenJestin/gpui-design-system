@@ -761,3 +761,84 @@ fn a_large_modal_closes_on_its_button_on_escape_and_on_a_click_outside(cx: &mut 
         assert_eq!(d.under, 0, "the page under the scrim never saw the click");
     });
 }
+
+/// A fitting modal: the large one's header, around a body whose size is its owner's.
+struct Fitting {
+    body: (f32, f32),
+}
+
+impl Render for Fitting {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        let (w, h) = self.body;
+        Modal::new("fit", "Picture")
+            .sentence("2 of 3")
+            .fitting()
+            .action(div().id("fit-action").w(px(32.)).h(px(32.)).test_support())
+            .child(
+                div()
+                    .id("fit-body")
+                    .flex_none()
+                    .w(px(w))
+                    .h(px(h))
+                    .test_support(),
+            )
+    }
+}
+
+fn fitting(body: (f32, f32), cx: &mut TestAppContext) -> &mut VisualTestContext {
+    init(cx);
+    let (_, cx) = cx.add_window_view(|_, _| Fitting { body });
+    cx.simulate_resize(size(px(1000.), px(700.)));
+    cx.update(|window, cx| window.render_frame(cx));
+    advance(cx, MODAL * 2);
+    cx
+}
+
+#[gpui_kit::test]
+fn a_fitting_modal_wraps_its_body_and_keeps_its_header_in_sight(cx: &mut TestAppContext) {
+    let cx = fitting((250., 160.), cx);
+    let (panel, body) = cx.update(|window, _| {
+        (
+            window.find("fit").bounds(),
+            window.find("fit-body").bounds(),
+        )
+    });
+    assert_eq!(
+        body.size,
+        size(px(250.), px(160.)),
+        "the body keeps its size"
+    );
+    assert!(
+        panel.size.width < px(500.) && panel.size.height < px(300.),
+        "the dialog wraps it, it does not fill the window: {panel:?}"
+    );
+    assert!(
+        panel.left() <= body.left() && panel.right() >= body.right(),
+        "the body is in it: {body:?} in {panel:?}"
+    );
+    assert!(
+        panel.size.width >= px(400.),
+        "wide enough for its header whatever the body: {panel:?}"
+    );
+    cx.update(|window, _| {
+        assert!(window.try_find("fit-cancel").is_none(), "no Cancel");
+        assert!(window.try_find("fit-close").is_some(), "its close button");
+        assert!(window.try_find("fit-action").is_some(), "its action");
+    });
+}
+
+#[gpui_kit::test]
+fn a_fitting_modal_stops_at_the_window_less_its_margins(cx: &mut TestAppContext) {
+    let cx = fitting((5000., 4000.), cx);
+    let (panel, viewport) =
+        cx.update(|window, _| (window.find("fit").bounds(), window.viewport_size()));
+    assert!(
+        panel.size.width <= viewport.width - px(48.)
+            && panel.size.height <= viewport.height - px(48.),
+        "{panel:?} in {viewport:?}"
+    );
+    assert!(
+        panel.size.width > viewport.width * 0.9 && panel.size.height > viewport.height * 0.9,
+        "{panel:?}"
+    );
+}

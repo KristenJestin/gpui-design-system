@@ -21,3 +21,5 @@ pub const COLUMN: Pixels = px(880.);
 pub const DIALOG: Pixels = px(520.);
 /// A dialog with a wide form.
 pub const DIALOG_WIDE: Pixels = px(640.);
+/// The least a fitting modal is wide: its title, the buttons of its header and its close button.
+pub const DIALOG_FIT_MIN: Pixels = px(400.);
