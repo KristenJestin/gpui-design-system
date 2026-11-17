@@ -24,6 +24,7 @@ use crate::icons::{Icon, icon};
 use crate::interact::hoverable;
 use crate::layer;
 use crate::listing::{Item, Listing};
+use crate::look::{Shaped as _, Surface};
 use crate::reveal::changing;
 use crate::space;
 use crate::theme::palette;
@@ -307,8 +308,7 @@ impl ToastStack {
             .mt(px(2.))
             .size(px(15.))
             .flex_none()
-            .rounded_full()
-            .bg(wash)
+            .surface(Surface::full().fill(wash))
             .flex()
             .items_center()
             .justify_center()
@@ -380,7 +380,6 @@ impl ToastStack {
             .aria_label("Dismiss")
             .flex_none()
             .size(px(22.))
-            .rounded(px(7.))
             .flex()
             .items_center()
             .justify_center()
@@ -388,7 +387,7 @@ impl ToastStack {
             .on_click(cx.listener(move |this, _, _, cx| this.dismiss(number, cx)));
         let dismiss = hoverable(dismiss, move |d, t| {
             let ink = mix(p.mute, p.text, t);
-            d.bg(p.hover.opacity(t))
+            d.surface(Surface::new(px(7.)).fill(p.hover.opacity(t)))
                 .child(icon(Icon::Close).size(px(12.)).text_color(ink))
         });
         let label = match &toast.detail {
@@ -407,17 +406,21 @@ impl ToastStack {
             .pb(px(12.))
             .pl(px(14.))
             .pr(px(10.))
-            .rounded(px(12.))
-            .bg(mix(p.card, p.card2, 0.6))
-            .border_1()
-            .border_color(if failed { p.fail_line } else { p.line2 })
-            .shadow(vec![BoxShadow {
-                color: p.shadow.opacity(0.55),
-                offset: point(px(0.), px(14.)),
-                blur_radius: px(36.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
+            .surface(
+                Surface::new(px(12.))
+                    .fill(mix(p.card, p.card2, 0.6))
+                    .line(if failed { p.fail_line } else { p.line2 }),
+            )
+            .drop_shadow(
+                vec![BoxShadow {
+                    color: p.shadow.opacity(0.55),
+                    offset: point(px(0.), px(14.)),
+                    blur_radius: px(36.),
+                    spread_radius: px(0.),
+                    inset: false,
+                }],
+                &p,
+            )
             .ui_text()
             .text_color(p.text)
             .on_hover(

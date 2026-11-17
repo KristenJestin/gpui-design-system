@@ -1,11 +1,15 @@
 //! Type: Geist for the interface, Geist Mono for paths, branches, models, tool names and
 //! arguments, times, counts, pills and section labels. Both are bundled (SIL OFL 1.1, the licence
-//! is beside the files) and set with tabular figures everywhere.
+//! is beside the files) and set with tabular figures everywhere. The look
+//! ([`Fonts`](crate::look::Fonts)) can give the interface, the titles and the controls faces of
+//! the application's own.
 
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use gpui_kit::{App, FontFeatures, FontWeight, Styled, px};
+use gpui_kit::{App, Font, FontFeatures, FontWeight, Styled, font, px};
+
+use crate::look::look;
 
 pub const UI: &str = "Geist";
 pub const MONO: &str = "Geist Mono";
@@ -32,18 +36,55 @@ pub(crate) fn register(cx: &mut App) {
     }
 }
 
+/// Registers the files of the application's own faces (TrueType or OpenType), which its look
+/// then names by family ([`Fonts`](crate::look::Fonts)). A file that cannot be read is said on the
+/// standard error, in the application's name, and the faces fall back to the system's.
+pub fn add_fonts(files: impl IntoIterator<Item = Cow<'static, [u8]>>, cx: &mut App) {
+    if let Err(e) = cx.text_system().add_fonts(files.into_iter().collect()) {
+        crate::identity::log(cx, format_args!("the fonts could not be loaded: {e}"));
+    }
+}
+
 fn tabular() -> FontFeatures {
     FontFeatures(Arc::new(vec![("tnum".into(), 1)]))
 }
 
-/// The two faces, applied to any styled element.
+/// The faces, applied to any styled element.
 pub trait Type: Styled + Sized {
-    /// The interface face at body size.
+    /// The interface face at body size: the look's ([`Fonts::ui`](crate::look::Fonts::ui)), Geist
+    /// by default.
     fn ui_text(self) -> Self {
-        self.font_family(UI)
+        self.ui_face()
             .font_features(tabular())
             .text_size(px(BODY))
             .line_height(px(BODY * 1.5))
+    }
+
+    /// The interface face alone, at the size and the figures around it.
+    fn ui_face(self) -> Self {
+        self.font_family(look().fonts.ui.clone())
+    }
+
+    /// The look's title face, when it gives one; the face around it otherwise.
+    fn title_text(self) -> Self {
+        match look().fonts.title.clone() {
+            Some(face) => self.font_family(face),
+            None => self,
+        }
+    }
+
+    /// The look's control face, when it gives one; the face around it otherwise.
+    fn control_face(self) -> Self {
+        match look().fonts.control.clone() {
+            Some(face) => self.font_family(face),
+            None => self,
+        }
+    }
+
+    /// The interface face at body size in the look's control face: the words of a button, a
+    /// segment, a select, a tab, a chip.
+    fn control_text(self) -> Self {
+        self.ui_text().control_face()
     }
 
     /// The mono face at `size` pixels.
@@ -64,3 +105,14 @@ pub trait Type: Styled + Sized {
 }
 
 impl<T: Styled> Type for T {}
+
+/// The face a control's words are measured in: the look's control face, else its interface face.
+pub(crate) fn control_font() -> Font {
+    let look = look();
+    font(
+        look.fonts
+            .control
+            .clone()
+            .unwrap_or_else(|| look.fonts.ui.clone()),
+    )
+}

@@ -12,6 +12,7 @@ use gpui_kit::{
 
 use crate::color::mix;
 use crate::interact::hoverable;
+use crate::look::{Radius, Shaped as _};
 use crate::reveal::presence;
 use crate::space;
 use crate::theme::palette;
@@ -93,7 +94,7 @@ impl RenderOnce for SetHere {
                     .gap(space::XS)
                     .text_size(px(12.))
                     .text_color(p.acc)
-                    .child(div().size(px(6.)).rounded_full().bg(p.acc))
+                    .child(div().size(px(6.)).corners(Radius::Full).bg(p.acc))
                     .child(self.set_label)
                     .test_support(),
             )

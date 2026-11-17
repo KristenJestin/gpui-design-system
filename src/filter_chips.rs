@@ -14,8 +14,10 @@ use gpui_kit::{
 
 use crate::color::mix;
 use crate::interact::{fade, selectable};
+use crate::look::{Shaped as _, Surface, look};
 use crate::motion::HOVER;
 use crate::theme::palette;
+use crate::typography::Type as _;
 
 type OnChoose = Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>;
 
@@ -86,6 +88,7 @@ fn part(id: &ElementId, name: &str) -> ElementId {
 impl RenderOnce for FilterChips {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = palette(cx);
+        let sizes = look().sizes;
         let chips = self
             .chips
             .iter()
@@ -103,13 +106,12 @@ impl RenderOnce for FilterChips {
                     .aria_label(text.clone())
                     .aria_selected(is_chosen)
                     .flex_none()
-                    .h(px(22.))
-                    .px(px(9.))
-                    .rounded_full()
-                    .border_1()
+                    .h(sizes.chip)
+                    .px(sizes.chip_padding)
                     .flex()
                     .items_center()
                     .whitespace_nowrap()
+                    .control_face()
                     .text_size(px(11.5))
                     .cursor_pointer()
                     .on_click(move |_, window, cx| {
@@ -119,15 +121,19 @@ impl RenderOnce for FilterChips {
                         {
                             on_choose(to, window, cx);
                         }
-                    })
-                    .child(text);
+                    });
+                // The words go in after the surface, which the hover and the choice paint.
                 selectable(element, is_chosen, move |d, hover, on| {
                     crate::seen::note(&id, on);
                     let ink = mix(mix(p.mute, p.text, hover), p.on_acc, on);
-                    d.bg(mix(p.hover.opacity(hover), p.acc, on))
-                        .border_color(mix(p.line2, p.acc, on))
-                        .text_color(ink)
-                        .opacity(1.0 - (1.0 - EMPTY) * empty)
+                    d.surface(
+                        Surface::full()
+                            .fill(mix(p.hover.opacity(hover), p.acc, on))
+                            .line(mix(p.line2, p.acc, on)),
+                    )
+                    .text_color(ink)
+                    .opacity(1.0 - (1.0 - EMPTY) * empty)
+                    .child(text)
                 })
             })
             .collect::<Vec<_>>();

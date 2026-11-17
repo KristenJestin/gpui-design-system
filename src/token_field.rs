@@ -39,7 +39,6 @@ use gpui_kit::base::input::{
     Backspace, Copy, Cut, Delete, InlineToken, InlineTokenContext, InlineTokenError, InputContent,
     InputEvent, Paste, Textarea, TextareaState,
 };
-use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, Bounds, ClipboardItem, Context, Div, ElementId, Entity,
     EntityInputHandler as _, EventEmitter, Global, InteractiveElement, IntoElement, ParentElement,
@@ -51,6 +50,7 @@ use crate::color::mix;
 use crate::field::follow_theme;
 use crate::icons::{Icon, icon};
 use crate::interact::pressable;
+use crate::look::{Shaped as _, Surface};
 use crate::motion::{ENTER, HOVER, Motion, PANEL};
 use crate::theme::palette;
 
@@ -820,10 +820,15 @@ fn field_chip(
     }
     let p = palette(cx);
     let measured = width.clone();
-    let chip = chip(id, &look, ink, token.line_height(), cx)
+    let (chip, content) = chip(id, &look, ink, token.line_height(), cx);
+    let chip = chip
         .relative()
-        .bg(mix(p.card2, p.sel, selected))
-        .border_color(mix(p.line, p.acc, selected))
+        .surface(
+            Surface::new(CORNER)
+                .fill(mix(p.card2, p.sel, selected))
+                .line(mix(p.line, p.acc, selected)),
+        )
+        .children(content)
         .child(
             canvas(
                 move |bounds: Bounds<Pixels>, _, _| measured.set(bounds.size.width),
@@ -847,11 +852,20 @@ fn field_chip(
         .into_any_element()
 }
 
-/// The chip both draw: its glyph, its label, its detail, `height` high, its ink drawn `ink` (0 to
-/// 1) of the way.
-fn chip(id: ElementId, look: &TokenLook, ink: f32, height: Pixels, cx: &App) -> Stateful<Div> {
+/// How round a chip's corners are.
+const CORNER: Pixels = px(5.);
+
+/// The chip both draw, `height` high, its ink drawn `ink` (0 to 1) of the way, and what it holds:
+/// its glyph, its label, its detail. Its surface goes in before what it holds.
+fn chip(
+    id: ElementId,
+    look: &TokenLook,
+    ink: f32,
+    height: Pixels,
+    cx: &App,
+) -> (Stateful<Div>, Vec<AnyElement>) {
     let p = palette(cx);
-    div()
+    let shell = div()
         .id(id)
         .aria_label(look.label.clone())
         .flex()
@@ -860,17 +874,27 @@ fn chip(id: ElementId, look: &TokenLook, ink: f32, height: Pixels, cx: &App) -> 
         .gap(px(4.))
         .h(height)
         .px(px(6.))
-        .rounded(px(5.))
-        .border_1()
         .text_color(p.text.opacity(ink))
-        .whitespace_nowrap()
-        .when_some(look.glyph, |chip, glyph| {
-            chip.child(icon(glyph).size(px(12.)).text_color(p.faint.opacity(ink)))
-        })
-        .child(look.label.clone())
-        .when_some(look.detail.clone(), |chip, detail| {
-            chip.child(div().text_color(p.faint.opacity(ink)).child(detail))
-        })
+        .whitespace_nowrap();
+    let mut content = Vec::new();
+    if let Some(glyph) = look.glyph {
+        content.push(
+            icon(glyph)
+                .size(px(12.))
+                .text_color(p.faint.opacity(ink))
+                .into_any_element(),
+        );
+    }
+    content.push(look.label.clone().into_any_element());
+    if let Some(detail) = look.detail.clone() {
+        content.push(
+            div()
+                .text_color(p.faint.opacity(ink))
+                .child(detail)
+                .into_any_element(),
+        );
+    }
+    (shell, content)
 }
 
 type OnToken = Rc<dyn Fn(&SharedString, &mut Window, &mut App)>;
@@ -936,9 +960,7 @@ impl RenderOnce for TokenText {
                 Piece::Token(token) => {
                     let id = ElementId::NamedInteger(format!("{}-token", self.id).into(), tokens);
                     tokens += 1;
-                    let chip = chip(id, &token.look, 1.0, px(LINE - 2.), cx)
-                        .border_color(p.line)
-                        .bg(p.card2);
+                    let (chip, content) = chip(id, &token.look, 1.0, px(LINE - 2.), cx);
                     let element = match &self.on_click {
                         Some(on_click) => {
                             let on_click = on_click.clone();
@@ -947,12 +969,19 @@ impl RenderOnce for TokenText {
                                 .cursor_pointer()
                                 .on_click(move |_, window, cx| on_click(&clicked, window, cx));
                             pressable(chip, move |chip, hover, _| {
-                                chip.bg(mix(p.card2, p.hover, hover))
-                                    .border_color(mix(p.line, p.line2, hover))
+                                chip.surface(
+                                    Surface::new(CORNER)
+                                        .fill(mix(p.card2, p.hover, hover))
+                                        .line(mix(p.line, p.line2, hover)),
+                                )
+                                .children(content)
                             })
                             .into_any_element()
                         }
-                        None => chip.into_any_element(),
+                        None => chip
+                            .surface(Surface::new(CORNER).fill(p.card2).line(p.line))
+                            .children(content)
+                            .into_any_element(),
                     };
                     lines.last_mut().expect("a line").push(
                         div()

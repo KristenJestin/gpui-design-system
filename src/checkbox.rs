@@ -8,6 +8,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     App, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, RenderOnce,
     SharedString, StatefulInteractiveElement, Styled, TestSupportExt, Window, div, px,
@@ -16,6 +17,7 @@ use gpui_kit::{
 use crate::color::mix;
 use crate::icons::{Icon, icon};
 use crate::interact::{fade, hoverable};
+use crate::look::{Corners, Radius, Shaped as _, Surface, look};
 use crate::motion::{HOVER, PANEL};
 use crate::theme::palette;
 
@@ -144,6 +146,8 @@ impl RenderOnce for Checkbox {
                 .child(self.label.clone())
                 .test_support()
         });
+        let look = look();
+        let own_border = look.border == px(1.) && !matches!(look.corners, Corners::Notch { .. });
         hoverable(root, move |d, hover| {
             crate::seen::note(&hover_id, hover);
             let mark = div()
@@ -151,10 +155,14 @@ impl RenderOnce for Checkbox {
                 .relative()
                 .flex_none()
                 .size(px(BOX))
-                .rounded(px(4.))
-                .border(px(1.5))
-                .border_color(mix(mix(p.line2, p.focus_line, hover), p.acc, fill))
-                .bg(mix(p.field, p.acc, fill))
+                .surface(
+                    Surface::new(px(4.))
+                        .fill(mix(p.field, p.acc, fill))
+                        .line(mix(mix(p.line2, p.focus_line, hover), p.acc, fill)),
+                )
+                // The kit's own box is drawn a half pixel heavier than its borders; a look that
+                // gives its own border, or notches its corners, draws it at the look's width.
+                .when(own_border, |d| d.border(px(1.5)))
                 .child(
                     div()
                         .absolute()
@@ -173,7 +181,13 @@ impl RenderOnce for Checkbox {
                         .items_center()
                         .justify_center()
                         .opacity(on * bar)
-                        .child(div().w(px(8.)).h(px(1.5)).rounded_full().bg(p.on_acc)),
+                        .child(
+                            div()
+                                .w(px(8.))
+                                .h(px(1.5))
+                                .corners(Radius::Full)
+                                .bg(p.on_acc),
+                        ),
                 )
                 .test_support();
             d.child(mark).children(label)

@@ -13,23 +13,21 @@ use std::sync::Arc;
 
 use gpui_kit::{
     App, ClickEvent, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    SharedString, StatefulInteractiveElement, Styled, TestSupportExt, TextRun, Window, div, font,
-    px,
+    SharedString, StatefulInteractiveElement, Styled, TestSupportExt, TextRun, Window, div, px,
 };
 
 use crate::color::mix;
 use crate::interact::{fade, hoverable};
+use crate::look::{Shaped as _, Surface, look};
 use crate::motion::{HOVER, Motion, PANEL};
 use crate::theme::{Palette, palette};
+use crate::typography::{Type as _, control_font};
 
 type OnChoose = Box<dyn Fn(usize, &mut Window, &mut App) + 'static>;
 
 /// The most choices it takes: more is a select's.
 pub const MAX_CHOICES: usize = 3;
-const HEIGHT: f32 = 26.;
 const INSET: f32 = 2.;
-/// The space on each side of a segment's words.
-const PAD: f32 = 9.;
 const TEXT: f32 = 12.;
 /// How much of its opacity a segment that cannot be taken loses.
 const UNAVAILABLE: f32 = 0.6;
@@ -117,6 +115,10 @@ impl Segmented {
 impl RenderOnce for Segmented {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = palette(cx);
+        let look = look();
+        let height = f32::from(look.sizes.segmented);
+        let pad = f32::from(look.sizes.segment_padding);
+        let border = f32::from(look.border);
         let slide = window.use_keyed_state(
             ElementId::NamedChild(Arc::new(self.id.clone()), "slide".into()),
             cx,
@@ -135,7 +137,7 @@ impl RenderOnce for Segmented {
         let at = motion.value(now);
         // Each segment is as wide as its words: the highlight slides from one place and width to
         // the other's.
-        let face = font(crate::typography::UI);
+        let face = control_font();
         let widths: Vec<f32> = self
             .options
             .iter()
@@ -151,7 +153,7 @@ impl RenderOnce for Segmented {
                 let line = window
                     .text_system()
                     .shape_line(words.clone(), px(TEXT), &[run], None);
-                (f32::from(line.width) + 2. * PAD).ceil()
+                (f32::from(line.width) + 2. * pad).ceil()
             })
             .collect();
         let lefts: Vec<f32> = widths
@@ -195,12 +197,13 @@ impl RenderOnce for Segmented {
                     .relative()
                     .flex_none()
                     .w(px(widths[index]))
-                    .h(px(HEIGHT - 2. * INSET - 2.))
+                    .h(px(height - 2. * INSET - 2. * border))
                     .flex()
                     .items_center()
                     .justify_center()
                     .whitespace_nowrap()
-                    .rounded(px(6.))
+                    .corners(px(6.))
+                    .control_face()
                     .text_size(px(TEXT))
                     .child(words.clone());
                 let taken = unavailable == Some(index);
@@ -229,8 +232,8 @@ impl RenderOnce for Segmented {
                 .into_any_element()
             })
             .collect::<Vec<_>>();
-        // Border-box: the 1 px border takes a pixel on each side.
-        let width = widths.iter().sum::<f32>() + 2. * INSET + 2.;
+        // Border-box: the border takes its width on each side.
+        let width = widths.iter().sum::<f32>() + 2. * INSET + 2. * border;
         let mut control = div()
             .id(self.id.clone())
             .aria_label(self.label.clone())
@@ -240,20 +243,16 @@ impl RenderOnce for Segmented {
             .items_center()
             .px(px(INSET))
             .w(px(width))
-            .h(px(HEIGHT))
-            .rounded(px(8.))
-            .bg(p.field)
-            .border_1()
-            .border_color(p.field_line)
+            .h(px(height))
+            .surface(Surface::new(px(8.)).fill(p.field).line(p.field_line))
             .child(
                 div()
                     .absolute()
                     .top(px(INSET))
                     .left(px(highlight_left))
                     .w(px(highlight_width))
-                    .h(px(HEIGHT - 2. * INSET - 2.))
-                    .rounded(px(6.))
-                    .bg(fill),
+                    .h(px(height - 2. * INSET - 2. * border))
+                    .surface(Surface::new(px(6.)).fill(fill)),
             )
             .children(segments);
         if disabled {

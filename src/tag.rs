@@ -7,6 +7,7 @@ use gpui_kit::{
 };
 
 use crate::cut::tipped_when_cut;
+use crate::look::{Shaped as _, Surface};
 use crate::reveal::changed;
 use crate::theme::palette;
 use crate::typography::Type;
@@ -53,9 +54,7 @@ impl RenderOnce for Tag {
             .text_color(p.faint)
             .px(px(6.))
             .py(px(1.))
-            .rounded(px(5.))
-            .border_1()
-            .border_color(p.line)
+            .surface(Surface::new(px(5.)).line(p.line))
             .whitespace_nowrap()
             .text_ellipsis()
             .child(self.text.clone());

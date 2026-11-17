@@ -2,7 +2,11 @@
 //!
 //! Four kinds of text button and one size: every text button is 30 px high, 13 px medium, with
 //! 12 px on each side; a kind changes the fill, the border and the ink, never the size. An icon
-//! button is a 28 px square with a tooltip. There is no way to ask for another size.
+//! button is a 28 px square with a tooltip. There is no way to ask for another size: the look
+//! gives them all ([`Sizes`](crate::look::Sizes)).
+//!
+//! Pressed, a button shrinks a little over [`PRESS`](crate::motion::PRESS); in a look with a hard
+//! shadow, it moves onto its shadow instead.
 
 use std::sync::Arc;
 
@@ -17,7 +21,8 @@ use crate::color::mix;
 use crate::icons::{Icon, icon};
 use crate::interact::{choose, fade, feel, wire_with};
 use crate::layer;
-use crate::motion::{HOVER, Motion, TOOLTIP};
+use crate::look::{Shaped as _, Surface, look};
+use crate::motion::{HOVER, Motion, PRESSED, TOOLTIP};
 use crate::space::SM;
 use crate::theme::{Palette, palette, radius};
 use crate::typography::Type;
@@ -195,12 +200,14 @@ impl Button {
 impl RenderOnce for Button {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = palette(cx);
+        let look = look();
+        let sizes = look.sizes;
         let (state, now) = feel(&self.id, window, cx);
-        let height = match self.kind {
-            ButtonKind::Icon => 28.,
-            ButtonKind::Float => 32.,
-            _ => 30.,
-        };
+        let height = f32::from(match self.kind {
+            ButtonKind::Icon => sizes.icon_button,
+            ButtonKind::Float => sizes.float_button,
+            _ => sizes.button,
+        });
         let (fill, ink, hover_ink) = match self.kind {
             ButtonKind::Primary | ButtonKind::Round => (Some(p.acc), p.on_acc, p.on_acc),
             ButtonKind::Danger => (Some(p.fail), p.on_fail, p.on_fail),
@@ -230,8 +237,19 @@ impl RenderOnce for Button {
                 ink_now = mix(ink_now, p.on_acc, t);
             }
         }
-        // GPUI cannot scale an element: pressing shrinks the background layer instead.
-        let inset = px(height * (1.0 - now.scale) / 2.0);
+        // GPUI cannot scale an element: pressing shrinks the background layer instead, or, with
+        // a hard shadow, moves the button onto it.
+        let pressed = (1.0 - now.scale) / (1.0 - PRESSED);
+        let shadow = look
+            .shadow
+            .filter(|_| fill.is_some() || border.is_some() || self.chosen == Some(true));
+        let inset = match shadow {
+            Some(_) => px(0.),
+            None => px(height * (1.0 - now.scale) / 2.0),
+        };
+        let (dx, dy) = shadow.map_or((px(0.), px(0.)), |shadow| {
+            (shadow.x * pressed, shadow.y * pressed)
+        });
         let label = self.label.clone();
         let tooltip = self.tooltip.clone();
         let accessible = label
@@ -240,6 +258,12 @@ impl RenderOnce for Button {
             .unwrap_or_default();
 
         let round = matches!(self.kind, ButtonKind::Round | ButtonKind::Float);
+        let shape = if round {
+            Surface::full()
+        } else {
+            Surface::new(radius::BUTTON)
+        };
+        let part = |name: &str| ElementId::Name(format!("{}-{name}", self.id).into());
         let mut button = div()
             .id(self.id.clone())
             .aria_label(accessible)
@@ -251,28 +275,40 @@ impl RenderOnce for Button {
             .gap(px(6.))
             .h(px(height))
             .text_color(ink_now)
-            .ui_text()
+            .control_text()
             .text_size(px(13.))
             .font_weight(FontWeight::MEDIUM)
             .whitespace_nowrap()
+            .when_some(shadow, |d, shadow| {
+                d.child(
+                    div()
+                        .id(part("shadow"))
+                        .absolute()
+                        .top(shadow.y)
+                        .bottom(-shadow.y)
+                        .left(shadow.x)
+                        .right(-shadow.x)
+                        .surface(shape.fill(shadow.color.of(&p)))
+                        .test_support(),
+                )
+            })
             .child(
                 div()
+                    .id(part("surface"))
                     .absolute()
-                    .top(inset)
-                    .bottom(inset)
-                    .left(inset)
-                    .right(inset)
-                    .when(round, |d| d.rounded_full())
-                    .when(self.kind == ButtonKind::Float, |d| d.shadow_sm())
-                    .when(!round, |d| d.rounded(radius::BUTTON))
-                    .bg(background)
-                    .when_some(border, |d, border| d.border_1().border_color(border)),
+                    .top(inset + dy)
+                    .bottom(inset - dy)
+                    .left(inset + dx)
+                    .right(inset - dx)
+                    .when(self.kind == ButtonKind::Float, |d| d.float_shadow())
+                    .surface(shape.fill(background).line_some(border))
+                    .test_support(),
             );
         button = match self.kind {
-            ButtonKind::Icon => button.w(px(28.)),
-            ButtonKind::Round => button.w(px(30.)),
-            ButtonKind::Float => button.w(px(32.)),
-            _ => button.px(px(12.)),
+            ButtonKind::Icon => button.w(sizes.icon_button),
+            ButtonKind::Round => button.w(sizes.button),
+            ButtonKind::Float => button.w(sizes.float_button),
+            _ => button.px(sizes.button_padding),
         };
         if self.full_width {
             button = button.w_full();
@@ -289,14 +325,28 @@ impl RenderOnce for Button {
                     .size(px(size * glyph.scale()))
                     .text_color(ink_now)
                     .relative()
+                    .when(shadow.is_some(), |d| d.left(dx).top(dy))
                     .test_support(),
             );
         }
         if let Some(label) = label.filter(|_| !self.icon_only) {
-            button = button.child(div().relative().child(label));
+            button = button.child(
+                div()
+                    .id(part("label"))
+                    .relative()
+                    .when(shadow.is_some(), |d| d.left(dx).top(dy))
+                    .child(label)
+                    .test_support(),
+            );
         }
         if let Some(badge) = self.badge {
-            button = button.child(div().absolute().top(px(1.)).right(px(0.)).child(badge));
+            button = button.child(
+                div()
+                    .absolute()
+                    .top(px(1.) + dy)
+                    .right(px(0.) - dx)
+                    .child(badge),
+            );
         }
         // GPUI places its own tooltip under the pointer, in front of the element it describes:
         // this one is anchored to the element.
@@ -361,8 +411,7 @@ impl RenderOnce for Badge {
             .min_w(px(14.))
             .h(px(14.))
             .px(px(3.))
-            .rounded(px(7.))
-            .bg(p.wait)
+            .surface(Surface::new(px(7.)).fill(p.wait))
             .text_color(p.on_wait)
             .mono(9.5)
             .line_height(px(14.))
@@ -403,10 +452,7 @@ fn bubble(text: SharedString, p: Palette) -> gpui_kit::Div {
     div()
         .px(px(8.))
         .py(px(4.))
-        .rounded(px(6.))
-        .bg(p.card2)
-        .border_1()
-        .border_color(p.line2)
+        .surface(Surface::new(px(6.)).fill(p.card2).line(p.line2))
         .text_color(p.text)
         .ui_text()
         .text_size(px(12.))

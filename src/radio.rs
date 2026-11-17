@@ -14,6 +14,7 @@ use gpui_kit::{
 use crate::color::mix;
 use crate::icons::{Icon, icon};
 use crate::interact::selectable;
+use crate::look::{Radius, Shaped as _, Surface};
 use crate::theme::palette;
 
 /// The most kinds it offers: more is a [`Select`](crate::Select)'s.
@@ -118,8 +119,7 @@ impl RenderOnce for RadioChoices {
                 .pb(px(6.))
                 .pl(px(6.))
                 .pr(px(10.))
-                .ml(px(-6.))
-                .rounded(px(8.));
+                .ml(px(-6.));
             if !chosen && let Some(on_choose) = self.on_choose.clone() {
                 row = row
                     .cursor_pointer()
@@ -153,9 +153,7 @@ impl RenderOnce for RadioChoices {
                     .mt(px(2.))
                     .size(px(16.))
                     .flex_none()
-                    .rounded_full()
-                    .border_1()
-                    .border_color(mix(p.line2, p.acc, on))
+                    .surface(Surface::full().line(mix(p.line2, p.acc, on)))
                     .flex()
                     .items_center()
                     .justify_center()
@@ -163,11 +161,13 @@ impl RenderOnce for RadioChoices {
                         div()
                             .id(dot_id)
                             .size(px(8. * on))
-                            .rounded_full()
+                            .corners(Radius::Full)
                             .bg(p.acc)
                             .test_support(),
                     );
-                d.bg(p.hover.opacity(hover)).child(ring).child(words)
+                d.surface(Surface::new(px(8.)).fill(p.hover.opacity(hover)))
+                    .child(ring)
+                    .child(words)
             })
         });
         div()

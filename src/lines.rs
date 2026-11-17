@@ -18,6 +18,7 @@ use crate::color::mix;
 use crate::cut::tipped_when_cut;
 use crate::icons::{Icon, icon};
 use crate::interact::{hoverable, selectable};
+use crate::look::{Shaped as _, Surface};
 use crate::menu::Menu;
 use crate::theme::palette;
 use crate::typography::Type;
@@ -92,6 +93,17 @@ impl RenderOnce for Chip {
             )]),
             None => text,
         };
+        // The surface is painted with the hover, before the children: they are given after it.
+        let content: Vec<AnyElement> = vec![
+            div()
+                .flex_none()
+                .h(px(16.))
+                .flex()
+                .items_center()
+                .child(icon(self.glyph).size(px(12.)).text_color(p.faint))
+                .into_any_element(),
+            div().min_w_0().child(text).into_any_element(),
+        ];
         let mut chip = div()
             .id(self.id)
             .aria_label(SharedString::from(label))
@@ -99,22 +111,11 @@ impl RenderOnce for Chip {
             .min_h(px(24.))
             .px(px(8.))
             .py(px(3.))
-            .rounded(px(6.))
-            .border_1()
             .flex()
             .items_start()
             .gap(px(6.))
             .mono(11.5)
-            .line_height(px(16.))
-            .child(
-                div()
-                    .flex_none()
-                    .h(px(16.))
-                    .flex()
-                    .items_center()
-                    .child(icon(self.glyph).size(px(12.)).text_color(p.faint)),
-            )
-            .child(div().min_w_0().child(text));
+            .line_height(px(16.));
         if let Some(on_click) = self.on_click {
             chip = chip
                 .cursor_pointer()
@@ -122,15 +123,23 @@ impl RenderOnce for Chip {
         }
         if let Some(chosen) = self.chosen {
             return selectable(chip.aria_selected(chosen), chosen, move |d, t, on| {
-                d.bg(mix(p.hover.opacity(t), p.card2, on))
-                    .text_color(mix(mix(p.mute, p.text, t), p.text, on))
-                    .border_color(mix(mix(p.line, p.line2, t), p.focus_line, on))
+                d.surface(
+                    Surface::new(px(6.))
+                        .fill(mix(p.hover.opacity(t), p.card2, on))
+                        .line(mix(mix(p.line, p.line2, t), p.focus_line, on)),
+                )
+                .text_color(mix(mix(p.mute, p.text, t), p.text, on))
+                .children(content)
             });
         }
         hoverable(chip, move |d, t| {
-            d.bg(p.hover.opacity(t))
-                .text_color(mix(p.mute, p.text, t))
-                .border_color(mix(p.line, p.line2, t))
+            d.surface(
+                Surface::new(px(6.))
+                    .fill(p.hover.opacity(t))
+                    .line(mix(p.line, p.line2, t)),
+            )
+            .text_color(mix(p.mute, p.text, t))
+            .children(content)
         })
     }
 }
@@ -182,6 +191,7 @@ impl RenderOnce for CardHead {
                 .text_ellipsis()
                 .text_size(px(13.5))
                 .font_weight(FontWeight::SEMIBOLD)
+                .title_text()
                 .child(self.title.clone()),
             self.title.clone(),
             window,

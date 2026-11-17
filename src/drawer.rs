@@ -12,6 +12,7 @@ use gpui_kit::{
 };
 
 use crate::interact::{dismiss_on_navigate, open_overlay};
+use crate::look::{Shaped as _, Side as Edge};
 use crate::motion::{Motion, PANEL};
 use crate::theme::palette;
 
@@ -135,17 +136,20 @@ impl Render for Drawer {
             .bottom_0()
             .w(self.width)
             .bg(p.side)
-            .shadow(vec![BoxShadow {
-                color: p.shadow.opacity(0.8),
-                offset: point(shadow_x, px(0.)),
-                blur_radius: px(40.),
-                spread_radius: px(-20.),
-                inset: false,
-            }])
+            .drop_shadow(
+                vec![BoxShadow {
+                    color: p.shadow.opacity(0.8),
+                    offset: point(shadow_x, px(0.)),
+                    blur_radius: px(40.),
+                    spread_radius: px(-20.),
+                    inset: false,
+                }],
+                &p,
+            )
             .child(self.content.clone());
         let panel = match self.side {
-            Side::Left => panel.left(offset).border_r_1().border_color(p.line),
-            Side::Right => panel.right(offset).border_l_1().border_color(p.line),
+            Side::Left => panel.left(offset).edge(Edge::Right, p.line),
+            Side::Right => panel.right(offset).edge(Edge::Left, p.line),
         };
         let this = cx.entity().downgrade();
         let close = move |_: &mut Window, cx: &mut App| {
@@ -202,15 +206,17 @@ impl Drawer {
             .max_w_full()
             .opacity(t)
             .bg(p.card)
-            .border_l_1()
-            .border_color(p.line2)
-            .shadow(vec![BoxShadow {
-                color: p.shadow.opacity(0.5),
-                offset: point(px(-24.), px(0.)),
-                blur_radius: px(60.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
+            .edge(Edge::Left, p.line2)
+            .drop_shadow(
+                vec![BoxShadow {
+                    color: p.shadow.opacity(0.5),
+                    offset: point(px(-24.), px(0.)),
+                    blur_radius: px(60.),
+                    spread_radius: px(0.),
+                    inset: false,
+                }],
+                &p,
+            )
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
                 if this.open && event.keystroke.key == "escape" {
                     cx.stop_propagation();

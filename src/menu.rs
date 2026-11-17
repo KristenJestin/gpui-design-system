@@ -18,8 +18,9 @@ use gpui_kit::{
 };
 
 use crate::button::Button;
-use crate::dropdown::{Align, Handler, MenuItem, TRIGGER, Width, list_overlay};
+use crate::dropdown::{Align, Handler, MenuItem, Width, list_overlay};
 use crate::icons::Icon;
+use crate::look::look;
 use crate::motion::{ENTER, HOVER, Motion};
 
 struct Entry {
@@ -243,7 +244,7 @@ impl Render for Menu {
         if !items.is_empty() && !dangers.is_empty() {
             items.push(
                 div()
-                    .h(px(1.))
+                    .h(look().border)
                     .mx(px(2.))
                     .my(px(4.))
                     .bg(p.line)
@@ -258,9 +259,10 @@ impl Render for Menu {
                 menu.update(cx, |menu, cx| menu.close(cx)).ok();
             }) as Handler
         });
+        // The list opens below the icon button that opens it.
         root.child(list_overlay(
             &self.id,
-            TRIGGER,
+            f32::from(look().sizes.icon_button),
             self.align,
             Width::Fit(self.width),
             items,

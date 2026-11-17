@@ -17,6 +17,7 @@ use gpui_kit::{
 
 use crate::field::Field;
 use crate::interact::fade;
+use crate::look::{Shaped as _, Surface};
 use crate::motion::PANEL;
 use crate::select::{Select, SelectOption};
 use crate::space;
@@ -437,8 +438,7 @@ impl RenderOnce for ModelChoice {
             .aria_label("picked")
             .px(space::SM)
             .py(space::XS)
-            .rounded(px(6.))
-            .bg(p.card2)
+            .surface(Surface::new(px(6.)).fill(p.card2))
             .text_size(px(11.5))
             .text_color(p.mute)
             .child("picked")

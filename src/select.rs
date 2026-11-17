@@ -20,22 +20,20 @@ use std::time::Duration;
 
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    App, Bounds, ElementId, FocusHandle, FontWeight, Hsla, InteractiveElement, IntoElement,
-    ParentElement, Pixels, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
-    TestSupportExt, Window, canvas, div, px,
+    AnyElement, App, Bounds, ElementId, FocusHandle, FontWeight, Hsla, InteractiveElement,
+    IntoElement, ParentElement, Pixels, RenderOnce, SharedString, StatefulInteractiveElement,
+    Styled, TestSupportExt, Window, canvas, div, px,
 };
 
 use crate::color::mix;
 use crate::dropdown::{Align, Handler, Width, list_overlay};
 use crate::icons::{Icon, icon};
 use crate::interact::{fade, hoverable, selectable};
+use crate::look::{Shaped as _, Surface, look};
 use crate::motion::{ENTER, HOVER, Motion, PANEL};
 use crate::theme::{Palette, palette};
+use crate::typography::Type as _;
 
-/// The height of a select's field: the list opens below it.
-const HEIGHT: f32 = 34.;
-/// The height of a compact select's pill.
-const COMPACT: f32 = 24.;
 /// The least width of the list of a compact select, whose pill may be narrower than its words.
 const COMPACT_LIST: f32 = 220.;
 
@@ -331,37 +329,46 @@ impl RenderOnce for Select {
         .absolute()
         .size_full();
         let compact = self.compact;
-        let height = if compact { COMPACT } else { HEIGHT };
+        let sizes = look().sizes;
+        // The list opens below the field (the pill).
+        let height = f32::from(if compact { sizes.pill } else { sizes.field });
         // A pill with no width of its own is as wide as its words, which it never cuts.
         let sized = compact && self.width.is_none();
+        // The words go in after the surface, whose border the hover paints.
+        let content: Vec<AnyElement> = vec![
+            measure.into_any_element(),
+            div()
+                .when(!sized, |d| d.flex_1().min_w_0().overflow_hidden())
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .children(chosen.as_ref().map(|o| o.title.clone()))
+                .into_any_element(),
+            if compact {
+                icon(Icon::Chevron).size(px(10.)).text_color(pill.ink)
+            } else {
+                icon(Icon::Choose).size(px(12.)).text_color(p.faint)
+            }
+            .into_any_element(),
+        ];
         let mut field = div()
             .id(self.id.clone())
             .aria_label(chosen.as_ref().map(|o| o.title.clone()).unwrap_or_default())
             .aria_expanded(open)
             .relative()
             .h(px(height))
-            .px(px(if compact { 9. } else { 10. }))
-            .rounded(px(if compact { 7. } else { 8. }))
-            .bg(if compact { pill.fill } else { p.field })
-            .border_1()
+            .px(if compact {
+                sizes.pill_padding
+            } else {
+                sizes.field_padding
+            })
             .flex()
             .items_center()
             .gap(px(if compact { 6. } else { 8. }))
+            .control_face()
             .text_size(px(if compact { 11.5 } else { 13. }))
-            .text_color(if compact { pill.ink } else { p.text })
-            .child(measure)
-            .child(
-                div()
-                    .when(!sized, |d| d.flex_1().min_w_0().overflow_hidden())
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .children(chosen.as_ref().map(|o| o.title.clone())),
-            )
-            .child(if compact {
-                icon(Icon::Chevron).size(px(10.)).text_color(pill.ink)
-            } else {
-                icon(Icon::Choose).size(px(12.)).text_color(p.faint)
-            });
+            .text_color(if compact { pill.ink } else { p.text });
+        let fill = if compact { pill.fill } else { p.field };
+        let radius = px(if compact { 7. } else { 8. });
         field = match (self.width, self.fit) {
             (Some(width), _) => field.w(width),
             _ if compact => field.flex_none(),
@@ -390,7 +397,12 @@ impl RenderOnce for Select {
             if compact {
                 crate::seen::note(&ring_id, on);
             }
-            d.border_color(mix(line, p.focus_line, on))
+            d.surface(
+                Surface::new(radius)
+                    .fill(fill)
+                    .line(mix(line, p.focus_line, on)),
+            )
+            .children(content)
         });
         let close = set_open.clone();
         let root_id = part(&self.id, "root");
@@ -448,7 +460,7 @@ impl RenderOnce for Select {
                     });
                 let is_chosen = index == self.chosen;
                 let (pick, on_choose) = (set_open.clone(), on_choose.clone());
-                let mut item = div()
+                let item = div()
                     .id(part(&self.id, &option.key))
                     .aria_label(option.title.clone())
                     .aria_selected(is_chosen)
@@ -458,7 +470,6 @@ impl RenderOnce for Select {
                     .py(px(6.))
                     .pl(px(30.))
                     .pr(px(10.))
-                    .rounded(px(6.))
                     .flex()
                     .flex_col()
                     .justify_center()
@@ -468,17 +479,19 @@ impl RenderOnce for Select {
                         if !is_chosen && let Some(on_choose) = &on_choose {
                             on_choose(index, window, cx);
                         }
-                    })
-                    .child(
-                        div()
-                            .text_size(px(13.))
-                            .line_height(px(18.))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(p.text)
-                            .child(option.title.clone()),
-                    );
+                    });
+                // The words go in after the fill, which the hover paints.
+                let mut content: Vec<AnyElement> = vec![
+                    div()
+                        .text_size(px(13.))
+                        .line_height(px(18.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(p.text)
+                        .child(option.title.clone())
+                        .into_any_element(),
+                ];
                 if let Some(line) = &option.line {
-                    item = item.child(
+                    content.push(
                         div()
                             .id(part(&self.id, &format!("{}-line", option.key)))
                             .aria_label(line.clone())
@@ -486,18 +499,21 @@ impl RenderOnce for Select {
                             .line_height(px(16.))
                             .text_color(p.faint)
                             .child(line.clone())
-                            .test_support(),
+                            .test_support()
+                            .into_any_element(),
                     );
                 }
                 let item = selectable(item, is_chosen, move |d, hover, on| {
-                    d.bg(p.hover.opacity(hover)).child(
-                        div()
-                            .absolute()
-                            .left(px(10.))
-                            .top(px(8.))
-                            .opacity(on)
-                            .child(icon(Icon::Check).size(px(12.)).text_color(p.text)),
-                    )
+                    d.surface(Surface::new(px(6.)).fill(p.hover.opacity(hover)))
+                        .children(content)
+                        .child(
+                            div()
+                                .absolute()
+                                .left(px(10.))
+                                .top(px(8.))
+                                .opacity(on)
+                                .child(icon(Icon::Check).size(px(12.)).text_color(p.text)),
+                        )
                 })
                 .into_any_element();
                 header.into_iter().chain([item])

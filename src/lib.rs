@@ -29,6 +29,7 @@ mod interact;
 pub mod layer;
 pub mod lines;
 pub mod listing;
+pub mod look;
 pub mod menu;
 pub mod modal;
 pub mod model_choice;
@@ -85,6 +86,7 @@ pub use lines::{
     CardHead, Chip, FlatRow, FooterAction, LINE_GAP, LabelledLine, caption, lines_block,
 };
 pub use listing::{Item, Listing, Placement};
+pub use look::{Corners, Fonts, Look, Shadow, Sizes, look};
 pub use menu::Menu;
 pub use modal::Modal;
 pub use model_choice::{Chosen, ModelChoice, ModelEntry};
@@ -118,10 +120,17 @@ pub use unfolding::{Summary, Unfolding};
 /// Initialises gpui-kit (which reads the system's reduced-motion setting), the bundled fonts and
 /// the theme, for the application `identity`: its first desktop source's when it offers one and
 /// it can be used, its first theme's otherwise. Register [`Icons`], or assets that serve it, as
-/// the application's assets.
+/// the application's assets. The kit is drawn in its own look ([`Look::default`]).
 pub fn init(identity: Identity, cx: &mut App) {
+    init_with(identity, Look::default(), cx);
+}
+
+/// [`init`], the kit drawn in `look`: the application's faces, corners, borders, shadow and
+/// sizes. Register the files of its own faces with [`typography::add_fonts`].
+pub fn init_with(identity: Identity, look: Look, cx: &mut App) {
     gpui_kit::init(cx);
     cx.set_global(identity);
     typography::register(cx);
+    look::install(&look);
     appearance::install(cx);
 }

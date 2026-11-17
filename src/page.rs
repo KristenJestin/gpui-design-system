@@ -16,6 +16,7 @@ use gpui_kit::{
 use crate::button::Button;
 use crate::cut::tipped_when_cut;
 use crate::icons::{Icon, icon};
+use crate::look::{Shaped as _, Surface};
 use crate::menu::Menu;
 use crate::tag::Tag;
 use crate::theme::palette;
@@ -133,6 +134,7 @@ impl RenderOnce for PageHeader {
             .text_size(px(22.))
             .line_height(px(30.))
             .font_weight(FontWeight::SEMIBOLD)
+            .title_text()
             .min_w_0()
             .overflow_hidden()
             .whitespace_nowrap()
@@ -280,6 +282,7 @@ impl RenderOnce for Section {
                 .text_ellipsis()
                 .text_size(px(13.5))
                 .font_weight(FontWeight::SEMIBOLD)
+                .title_text()
                 .child(self.title.clone()),
             self.title,
             window,
@@ -366,10 +369,7 @@ impl RenderOnce for EmptyLine {
             .items_center()
             .gap(px(12.))
             .p(px(16.))
-            .rounded(px(12.))
-            .border_1()
-            .border_dashed()
-            .border_color(p.line2)
+            .surface(Surface::new(px(12.)).line(p.line2).dashed())
             .ui_text()
             .text_size(px(13.))
             .text_color(p.mute)
