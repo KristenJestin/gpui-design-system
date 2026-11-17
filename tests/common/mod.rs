@@ -20,6 +20,13 @@ pub fn init_as(identity: gpui_design_system::Identity, cx: &mut TestAppContext) 
     cx.run_until_parked();
 }
 
+/// [`init`], the kit drawn in `look`.
+pub fn init_look(look: gpui_design_system::Look, cx: &mut TestAppContext) {
+    let identity = gpui_design_system::Identity::new("Kit");
+    cx.update(|cx| gpui_design_system::init_with(identity, look, cx));
+    cx.run_until_parked();
+}
+
 /// Counts every time `entity` asks to be redrawn: a timer tick, a state change, an animation
 /// frame all go through `notify`.
 pub fn count_redraws<T: 'static>(
