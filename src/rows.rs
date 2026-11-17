@@ -19,6 +19,7 @@ use crate::cut::tipped_when_cut;
 use crate::icons::{Icon, icon};
 use crate::interact::{choose, fade, feel, wire, wire_with};
 use crate::listing::{Item, Placement};
+use crate::look::{Shaped as _, Side, Surface, Which, look};
 use crate::menu::Menu;
 use crate::motion::{HOVER, Motion, PANEL};
 use crate::reveal::changed;
@@ -171,8 +172,7 @@ impl RenderOnce for TreeRow {
                 (false, true) => TWO_LINES,
             }))
             .px(px(8.))
-            .rounded(radius::ROW)
-            .bg(background)
+            .surface(Surface::new(radius::ROW).fill(background))
             .text_color(ink)
             .ui_text()
             .text_size(px(if top { 13.5 } else { 13. }))
@@ -319,8 +319,7 @@ pub fn tree_children(children: impl IntoIterator<Item = AnyElement>, cx: &App) -
         .ml(px(14.))
         .pl(px(6.))
         .my(px(2.))
-        .border_l_1()
-        .border_color(p.line)
+        .edge(Side::Left, p.line)
         .flex()
         .flex_col()
         .children(children)
@@ -396,7 +395,7 @@ pub fn tree_tie(
             .left(px(x))
             .top_0()
             .bottom_0()
-            .w(px(1.))
+            .w(look().border)
             .bg(p.line)
     };
     div()
@@ -427,10 +426,9 @@ pub fn tree_tie(
                 .top_0()
                 .w(px(TIE_INDENT * tie.depth() as f32 + TIE_INTO - own))
                 .h(px(first_line))
-                .border_l_1()
-                .border_b_1()
-                .border_color(p.line)
-                .rounded_bl(px(TIE_TURN))
+                .edge(Side::Left, p.line)
+                .edge(Side::Bottom, p.line)
+                .corners_at(px(TIE_TURN), Which::BottomLeft)
                 .test_support(),
         )
         .when(!tie.last, |d| {
@@ -677,9 +675,20 @@ impl RenderOnce for ListRow {
             .w_full()
             .flex()
             .items_center()
-            .bg(background)
             .text_color(p.text)
             .ui_text();
+        // A card's first and last rows take its corners, so that a notched card's are notched.
+        let shape = match (self.in_card, self.corners) {
+            (false, _) => Some(Surface::new(radius::LIST_ROW)),
+            (true, (true, true)) => Some(Surface::new(px(11.))),
+            (true, (true, false)) => Some(Surface::new(px(11.)).at(Which::Top)),
+            (true, (false, true)) => Some(Surface::new(px(11.)).at(Which::Bottom)),
+            (true, (false, false)) => None,
+        };
+        row = match shape {
+            Some(shape) => row.surface(shape.fill(background)),
+            None => row.bg(background),
+        };
         row = if self.in_card {
             row.gap(px(12.))
                 .min_h(px(52.))
@@ -687,13 +696,8 @@ impl RenderOnce for ListRow {
                 .pb(px(10.))
                 .pl(px(14.))
                 .pr(px(8.))
-                .when(self.corners.0, |d| d.rounded_t(px(11.)))
-                .when(self.corners.1, |d| d.rounded_b(px(11.)))
         } else {
-            row.gap(px(10.))
-                .px(px(10.))
-                .py(px(8.))
-                .rounded(radius::LIST_ROW)
+            row.gap(px(10.)).px(px(10.)).py(px(8.))
         };
         let tags_shown = self.tags_shown;
         let tags: Vec<AnyElement> = self
@@ -878,7 +882,7 @@ impl RenderOnce for ListCard {
         let last = self.rows.len().saturating_sub(1);
         for (index, (mut row, item)) in self.rows.into_iter().enumerate() {
             row.corners = (index == 0, index == last);
-            let line = (index > 0).then(|| div().flex_none().h(px(1.)).bg(p.line));
+            let line = (index > 0).then(|| div().flex_none().h(look().border).bg(p.line));
             let content = div().flex().flex_col().children(line).child(row);
             children.push(match item {
                 Some((id, placement)) => Item::new(id, placement, content).into_any_element(),
@@ -887,10 +891,7 @@ impl RenderOnce for ListCard {
         }
         let frame = div()
             .id(self.id.clone())
-            .bg(p.card)
-            .border_1()
-            .border_color(p.line)
-            .rounded(radius::CARD)
+            .surface(Surface::new(radius::CARD).fill(p.card).line(p.line))
             .overflow_hidden();
         match self.scrolling {
             Some((scroll, max_height)) => frame.child(

@@ -12,6 +12,7 @@ use gpui_kit::{
 };
 
 use crate::ids::part;
+use crate::look::{Shaped as _, Surface};
 use crate::space;
 use crate::theme::{Palette, palette, radius};
 use crate::typography::Type;
@@ -108,9 +109,7 @@ impl RenderOnce for DiffLines {
             .flex()
             .flex_col()
             .overflow_hidden()
-            .rounded(radius::LIST_ROW)
-            .border_1()
-            .border_color(p.line)
+            .surface(Surface::new(radius::LIST_ROW).line(p.line))
             .children(self.lines.into_iter().enumerate().map(|(at, line)| {
                 let label = format!("{} {}", line.sign(), line.text);
                 let mut row = div()

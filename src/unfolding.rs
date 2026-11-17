@@ -23,6 +23,7 @@ use crate::cut::tipped_when_cut;
 use crate::icons::{Icon, icon};
 use crate::ids::part;
 use crate::interact::hoverable;
+use crate::look::{Shaped as _, Surface};
 use crate::reveal::presence;
 use crate::rows::turning;
 use crate::seen;
@@ -131,15 +132,22 @@ impl RenderOnce for Unfolding {
             .flex()
             .items_center()
             .gap(space::SM)
-            .rounded(radius::LIST_ROW)
-            .text_size(px(12.5))
-            .child(chevron(part(&self.id, "chevron"), open, window, cx));
+            .text_size(px(12.5));
+        // The children go in after the surface, which the hover paints.
+        let mut content = vec![chevron(part(&self.id, "chevron"), open, window, cx)];
         if let Some(leading) = self.leading {
-            line = line.child(control(part(&self.id, "leading"), leading));
+            content.push(control(part(&self.id, "leading"), leading));
         }
-        line = line.child(div().flex_1().min_w_0().overflow_hidden().child(self.line));
+        content.push(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .child(self.line)
+                .into_any_element(),
+        );
         if let Some(trailing) = self.trailing {
-            line = line.child(control(part(&self.id, "trailing"), trailing));
+            content.push(control(part(&self.id, "trailing"), trailing));
         }
         if let Some(on_toggle) = self.on_toggle {
             line = line
@@ -149,7 +157,8 @@ impl RenderOnce for Unfolding {
         let line_id = self.id.clone();
         let line = hoverable(line, move |d, t| {
             seen::note(&line_id, t);
-            d.bg(p.hover.opacity(t))
+            d.surface(Surface::new(radius::LIST_ROW).fill(p.hover.opacity(t)))
+                .children(content)
         });
         div()
             .id(part(&self.id, "root"))
@@ -246,20 +255,18 @@ impl RenderOnce for Summary {
             .flex()
             .items_center()
             .gap(space::SM)
-            .rounded(radius::LIST_ROW)
-            .border_1()
-            .border_dashed()
-            .border_color(p.line2)
-            .text_size(px(12.))
-            .child(
-                div()
-                    .id(part(&self.id, "title"))
-                    .aria_label(self.title.clone())
-                    .flex_none()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(self.title)
-                    .test_support(),
-            );
+            .text_size(px(12.));
+        // The children go in after the surface, which the hover paints.
+        let mut content = vec![
+            div()
+                .id(part(&self.id, "title"))
+                .aria_label(self.title.clone())
+                .flex_none()
+                .font_weight(FontWeight::MEDIUM)
+                .child(self.title)
+                .test_support()
+                .into_any_element(),
+        ];
         if let Some(detail) = self.detail {
             let said = div()
                 .id(part(&self.id, "detail"))
@@ -270,11 +277,10 @@ impl RenderOnce for Summary {
                 .text_ellipsis()
                 .text_color(p.faint)
                 .child(detail.clone());
-            line = line.child(tipped_when_cut(said, detail, window, cx));
+            content.push(tipped_when_cut(said, detail, window, cx).into_any_element());
         }
-        line =
-            line.child(div().flex_1())
-                .child(chevron(part(&self.id, "chevron"), open, window, cx));
+        content.push(div().flex_1().into_any_element());
+        content.push(chevron(part(&self.id, "chevron"), open, window, cx));
         let on_toggle = self.on_toggle;
         line = line.cursor_pointer().on_click(move |_, window, cx| {
             dismissed.update(cx, |dismissed, cx| {
@@ -288,7 +294,14 @@ impl RenderOnce for Summary {
         let line_id = self.id.clone();
         let line = hoverable(line, move |d, t| {
             seen::note(&line_id, t);
-            d.text_color(mix(p.mute, p.text, t)).bg(p.hover.opacity(t))
+            d.text_color(mix(p.mute, p.text, t))
+                .surface(
+                    Surface::new(radius::LIST_ROW)
+                        .fill(p.hover.opacity(t))
+                        .line(p.line2)
+                        .dashed(),
+                )
+                .children(content)
         });
         div()
             .id(part(&self.id, "root"))
