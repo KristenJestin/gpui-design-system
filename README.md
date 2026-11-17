@@ -77,6 +77,67 @@ The user's choice is an `Appearance`: a desktop source or a theme, by its id, an
 (the application's first theme when the desktop's cannot be used); `appearance::refused` says why
 a desktop cannot be chosen here. Keeping the choice between two runs is the application's job.
 
+## The look
+
+The faces, the corners, the borders, the shadow and the sizes of the kit are its look, given once
+with `init_with(identity, look, cx)` in place of `init(identity, cx)`. Every field defaults to
+the kit's own design: `Look::default()` is what `init` draws, exactly as before. The colours stay
+the theme's, a desktop source's included.
+
+| Field | What it gives | Default |
+|---|---|---|
+| `fonts: Fonts { ui, title, control }` | the families of the interface (`Type::ui_text`), of the titles (`title_text`) and of the controls' words (`control_text`: buttons, segmented controls, selects, tabs, chips); `None` takes the interface's | `"Geist"`, `None`, `None` |
+| `corners: Corners` | `Rounded` (the kit's radii), `Square`, or `Notch { step, steps }`: each corner cut by `steps` stairs of `step` px, the border following them | `Rounded` |
+| `border: Pixels` | the width of every border and separating line | `px(1.)` |
+| `shadow: Option<Shadow { x, y }>` | a hard shadow, offset and unblurred, in the palette's shadow colour, under the buttons and the overlays; a pressed button moves onto it over `PRESS` (at once with reduced motion) instead of shrinking | `None` |
+| `grid: Option<Pixels>` | the unit the look's sizes, paddings and shadow offset are whole multiples of, rounded to the nearest | `None` |
+| `sizes: Sizes` | the heights of the controls and the space beside their words: `button` 30, `button_padding` 12, `icon_button` 28, `float_button` 32, `field` 34, `field_padding` 10, `pill` 24, `pill_padding` 9, `segmented` 26, `segment_padding` 9, `tab` 34, `tab_padding` 10, `chip` 22, `chip_padding` 9 | the kit's |
+
+The application registers the files of its own faces with `typography::add_fonts`, then names
+their families in the look. The mono face (Geist Mono: paths, counts, times) is not part of it.
+`look()` gives the look the kit draws with, its sizes on the grid.
+
+A pixel look: notched corners, a 2 px border, a hard shadow, a 4 px grid and faces of its own:
+
+```rust
+use std::borrow::Cow;
+
+use gpui_design_system::{Corners, Fonts, Icons, Identity, Look, Shadow, Sizes, typography};
+use gpui_kit::px;
+
+fn pixel() -> Look {
+    Look {
+        fonts: Fonts {
+            ui: "Pixel Sans".into(),
+            title: Some("Pixel Display".into()),
+            control: Some("Pixel Mono".into()),
+        },
+        corners: Corners::Notch { step: px(2.), steps: 1 },
+        border: px(2.),
+        shadow: Some(Shadow { x: px(4.), y: px(4.) }),
+        grid: Some(px(4.)),
+        sizes: Sizes { button: px(32.), ..Sizes::default() },
+    }
+}
+
+gpui_kit::application().with_assets(Icons).run(|cx| {
+    typography::add_fonts(
+        [
+            Cow::Borrowed(include_bytes!("../fonts/PixelSans.ttf").as_slice()),
+            Cow::Borrowed(include_bytes!("../fonts/PixelDisplay.ttf").as_slice()),
+            Cow::Borrowed(include_bytes!("../fonts/PixelMono.ttf").as_slice()),
+        ],
+        cx,
+    );
+    gpui_design_system::init_with(Identity::new("Notes"), pixel(), cx);
+    // Open the windows.
+});
+```
+
+GPUI draws no cut corner: a notched surface is drawn by layers under its children, its border
+keeping its room. A child that overflows a notched card or list (a row scrolled under its edge)
+can cover the border and the cut corners, where a rounded one is clipped inside its border.
+
 ## Icons
 
 `Icons` serves the Lucide icons the components use (the base set of `Icon`). An application that
