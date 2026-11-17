@@ -337,7 +337,6 @@ impl RenderOnce for Subpage {
                 .child(
                     div()
                         .text_color(p.text)
-                        .title_text()
                         .children(last.as_ref().map(title_of)),
                 )
                 .test_support();
