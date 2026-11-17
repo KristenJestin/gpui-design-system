@@ -15,6 +15,7 @@ use gpui_kit::{
 
 use crate::button::Button;
 use crate::ids::part;
+use crate::look::{Shaped as _, Surface};
 use crate::reveal::{changed, presence_of};
 use crate::space;
 use crate::theme::{palette, radius};
@@ -119,10 +120,7 @@ impl RenderOnce for Shown {
                 .flex()
                 .items_center()
                 .gap(space::SM)
-                .rounded(radius::LIST_ROW)
-                .border_1()
-                .border_color(p.line)
-                .bg(p.card2)
+                .surface(Surface::new(radius::LIST_ROW).fill(p.card2).line(p.line))
                 .text_size(px(12.))
                 .text_color(p.mute)
                 .child(

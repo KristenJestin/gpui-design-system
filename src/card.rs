@@ -14,6 +14,7 @@ use gpui_kit::{
     RenderOnce, SharedString, Styled, TestSupportExt, Window, div, px,
 };
 
+use crate::look::{Shaped as _, Surface, look};
 use crate::reveal::presence;
 use crate::theme::{palette, radius};
 use crate::typography::Type;
@@ -140,7 +141,7 @@ impl RenderOnce for Card {
         let named = self.id.clone();
         let mut drawn = 0;
         let mut separator = move || {
-            let line = div().flex_none().h(px(1.)).bg(p.line);
+            let line = div().flex_none().h(look().border).bg(p.line);
             drawn += 1;
             let id = match &card {
                 Some(ElementId::Name(name)) => {
@@ -176,6 +177,7 @@ impl RenderOnce for Card {
                             .overflow_hidden()
                             .whitespace_nowrap()
                             .text_ellipsis()
+                            .title_text()
                             .children(self.title),
                     )
                     .when_some(self.meta, |d, meta| {
@@ -242,7 +244,11 @@ impl RenderOnce for Card {
                     // Its line is numbered only while it is there; folding away, it has none.
                     let line = above.then(|| match present {
                         true => separator(),
-                        false => div().flex_none().h(px(1.)).bg(p.line).into_any_element(),
+                        false => div()
+                            .flex_none()
+                            .h(look().border)
+                            .bg(p.line)
+                            .into_any_element(),
                     });
                     let block = div().flex().flex_col().children(line).child(content);
                     parts.push(presence(id, present, block).into_any_element());
@@ -254,14 +260,15 @@ impl RenderOnce for Card {
             .flex()
             .flex_col()
             .when(self.fill, |d| d.h_full())
-            .bg(if self.alarm { p.fail_bg } else { p.card })
-            .border_1()
-            .border_color(match (self.alarm, self.attention) {
-                (true, _) => p.fail,
-                (false, true) => p.wait_line,
-                (false, false) => p.line,
-            })
-            .rounded(radius::CARD)
+            .surface(
+                Surface::new(radius::CARD)
+                    .fill(if self.alarm { p.fail_bg } else { p.card })
+                    .line(match (self.alarm, self.attention) {
+                        (true, _) => p.fail,
+                        (false, true) => p.wait_line,
+                        (false, false) => p.line,
+                    }),
+            )
             .text_color(p.text)
             .ui_text()
             .children(parts)

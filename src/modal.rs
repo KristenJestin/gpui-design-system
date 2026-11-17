@@ -39,6 +39,7 @@ use crate::button::Button;
 use crate::icons::Icon;
 use crate::interact::{dismiss_on_navigate, open_holding_overlay};
 use crate::layer;
+use crate::look::{Shaped as _, Side, Surface};
 use crate::motion::{MODAL, Motion, RISE};
 use crate::space;
 use crate::theme::palette;
@@ -302,6 +303,7 @@ impl RenderOnce for Modal {
                         .text_size(px(15.))
                         .line_height(px(22.))
                         .semibold()
+                        .title_text()
                         .child(self.title)
                         .test_support(),
                 )
@@ -337,8 +339,7 @@ impl RenderOnce for Modal {
             div()
                 .flex_none()
                 .p(space::MD)
-                .border_b_1()
-                .border_color(p.line)
+                .edge(Side::Bottom, p.line)
                 .children(self.above)
         });
         // It scrolls inside a column of its own, so that the rows keep their heights while it
@@ -423,17 +424,17 @@ impl RenderOnce for Modal {
                 viewport.height - px(48.)
             })
             .when(search, |d| d.aria_label(title))
-            .rounded(px(14.))
-            .bg(p.card)
-            .border_1()
-            .border_color(p.line2)
-            .shadow(vec![BoxShadow {
-                color: p.shadow.opacity(0.6),
-                offset: point(px(0.), px(24.)),
-                blur_radius: px(60.),
-                spread_radius: px(0.),
-                inset: false,
-            }])
+            .surface(Surface::new(px(14.)).fill(p.card).line(p.line2))
+            .drop_shadow(
+                vec![BoxShadow {
+                    color: p.shadow.opacity(0.6),
+                    offset: point(px(0.), px(24.)),
+                    blur_radius: px(60.),
+                    spread_radius: px(0.),
+                    inset: false,
+                }],
+                p.shadow,
+            )
             .ui_text()
             .text_color(p.text)
             .flex()

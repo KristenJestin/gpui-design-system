@@ -15,6 +15,7 @@ use gpui_kit::{
     canvas, div, px,
 };
 
+use crate::look::{Shaped as _, Surface};
 use crate::motion::{Motion, PANEL};
 use crate::reveal::PULSE;
 use crate::theme::palette;
@@ -144,8 +145,7 @@ impl Render for Pulse {
         div()
             .w_full()
             .h(self.height)
-            .rounded(px(4.))
-            .bg(p.line2.opacity(opacity))
+            .surface(Surface::new(px(4.)).fill(p.line2.opacity(opacity)))
     }
 }
 
