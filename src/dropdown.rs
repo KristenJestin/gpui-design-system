@@ -20,13 +20,15 @@ use crate::color::mix;
 use crate::icons::{Icon, icon};
 use crate::interact::{dismiss_on_navigate, hoverable, open_holding_overlay};
 use crate::layer;
-use crate::look::{Shaped as _, Surface};
+use crate::look::{Shaped as _, Surface, look};
 use crate::motion::{ENTER, HOVER, Motion, RISE};
 use crate::theme::palette;
 use crate::typography::Type;
 
-/// The height of a picker's button: the list opens this far below its top.
-pub(crate) const TRIGGER: f32 = 28.;
+/// The height of a picker's button, on the look's grid: the list opens this far below its top.
+const TRIGGER: f32 = 28.;
+/// The space on each side of a picker's words, on the look's grid.
+const PAD: f32 = 9.;
 /// The space between the button and its list, on either side.
 const GAP: f32 = 4.;
 
@@ -156,10 +158,12 @@ impl RenderOnce for Dropdown {
                     .into_any_element(),
             ])
             .collect();
+        let look = look();
+        let trigger = look.snap(px(TRIGGER));
         let button = div()
             .id(self.id.clone())
-            .h(px(TRIGGER))
-            .px(px(9.))
+            .h(trigger)
+            .px(look.snap(px(PAD)))
             .flex()
             .items_center()
             .gap(px(6.))
@@ -210,7 +214,7 @@ impl RenderOnce for Dropdown {
         let dismiss = self.open.then_some(self.on_toggle).flatten();
         root.child(list_overlay(
             &self.id,
-            TRIGGER,
+            f32::from(trigger),
             self.align,
             Width::Fixed(self.width),
             self.items,
@@ -286,7 +290,7 @@ pub(crate) fn list_overlay(
                 spread_radius: px(0.),
                 inset: false,
             }],
-            p.shadow,
+            &p,
         )
         .ui_text()
         .text_color(p.text)

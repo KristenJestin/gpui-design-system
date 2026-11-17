@@ -7,10 +7,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use common::{advance, init, init_look};
+use gpui_design_system::look::Role;
 use gpui_design_system::motion::PRESS;
 use gpui_design_system::{
-    Button, Corners, FilterChip, FilterChips, Fonts, Icon, Look, Segmented, Select, SelectOption,
-    Shadow, Sizes, Tabs, Type, look,
+    Button, Corners, Dropdown, FilterChip, FilterChips, Fonts, Icon, Look, Segmented, Select,
+    SelectOption, Shadow, Sizes, Tabs, Type, look,
 };
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
@@ -98,6 +99,7 @@ fn controls(_: &mut Window, _: &mut Context<Host>) -> AnyElement {
             ],
             0,
         ))
+        .child(Dropdown::new("picker", "Model"))
         .into_any_element()
 }
 
@@ -122,6 +124,7 @@ fn pixel() -> Look {
         shadow: Some(Shadow {
             x: px(4.),
             y: px(4.),
+            color: Role::Line2,
         }),
         grid: Some(px(4.)),
         sizes: Sizes::default(),
@@ -189,6 +192,7 @@ fn with_no_look_set_every_control_keeps_its_height(cx: &mut TestAppContext) {
         ("pill", 24.),
         ("tabs", 34.),
         ("show-all", 22.),
+        ("picker", 28.),
     ] {
         assert_eq!(height(id, cx), px(expected), "{id}");
     }
@@ -284,6 +288,7 @@ fn a_pixel_look_gives_every_control_the_height_it_says(cx: &mut TestAppContext) 
         ("pill", 32.),
         ("tabs", 44.),
         ("show-all", 32.),
+        ("picker", 28.),
     ] {
         assert_eq!(height(id, cx), px(expected), "{id}");
     }
@@ -501,6 +506,7 @@ fn with_a_grid_set_sizes_paddings_and_offsets_are_whole_multiples_of_its_unit(
         shadow: Some(Shadow {
             x: px(3.),
             y: px(3.),
+            color: Role::Shadow,
         }),
         ..pixel()
     };
@@ -522,6 +528,7 @@ fn with_a_grid_set_sizes_paddings_and_offsets_are_whole_multiples_of_its_unit(
         "pill",
         "tabs",
         "show-all",
+        "picker",
     ] {
         on_grid(id, height(id, cx), unit);
     }
@@ -569,6 +576,7 @@ fn the_readme_documents_the_look_with_a_pixel_look() {
         "Fonts {",
         "Corners::Notch",
         "Shadow {",
+        "Role::",
         "grid: Some(",
         "add_fonts",
         "Sizes",
