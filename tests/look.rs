@@ -308,7 +308,7 @@ fn a_pixel_look_s_faces_are_the_ones_the_kit_s_texts_take(cx: &mut TestAppContex
 
 /// The calls that draw a corner, a border, a separating line, a shadow or a face: a component
 /// makes them through the look (`src/look.rs`), never itself.
-const SHAPE_CALLS: [&str; 16] = [
+const SHAPE_CALLS: [&str; 14] = [
     ".rounded(",
     ".rounded_",
     // A separating line drawn as a 1 px block: the look's border width.
@@ -324,8 +324,6 @@ const SHAPE_CALLS: [&str; 16] = [
     ".shadow(",
     ".shadow_sm()",
     ".font_family(",
-    "typography::UI",
-    "font(",
 ];
 
 /// The lines of `source` that draw a shape or a face themselves.
@@ -335,14 +333,12 @@ fn own_shapes(source: &str) -> Vec<(usize, String)> {
         .enumerate()
         .filter(|(_, line)| {
             let code = line.trim_start();
+            // The interface face by its constant: the look's is `look().fonts.ui`.
+            let names_the_face = code
+                .split(|c: char| !c.is_alphanumeric() && c != '_')
+                .any(|word| word == "UI");
             !code.starts_with("//")
-                && SHAPE_CALLS.iter().any(|call| {
-                    code.match_indices(call).any(|(at, _)| {
-                        // `font(` alone: GPUI's, not a word ending in it (`set_font(`).
-                        *call != "font("
-                            || !code[..at].ends_with(|c: char| c.is_alphanumeric() || c == '_')
-                    })
-                })
+                && (names_the_face || SHAPE_CALLS.iter().any(|call| code.contains(call)))
         })
         .map(|(at, line)| (at + 1, line.trim().to_owned()))
         .collect()
@@ -362,13 +358,15 @@ fn sources(dir: &Path, found: &mut Vec<PathBuf>) {
 #[test]
 fn a_shape_drawn_by_hand_is_found() {
     let found = own_shapes(
-        "d.rounded(px(7.))\n// .border_1()\n.edge(Side::Top, p.line)\nlet face = font(UI);\nset_font(x)\n",
+        "d.rounded(px(7.))\n// .border_1()\n.edge(Side::Top, p.line)\nlet face = font(crate::typography::UI);\nlet face = control_font();\nuse crate::typography::{MONO, UI};\n.h(px(1.)).bg(p.line)\n",
     );
     assert_eq!(
         found,
         vec![
             (1, "d.rounded(px(7.))".to_owned()),
-            (4, "let face = font(UI);".to_owned())
+            (4, "let face = font(crate::typography::UI);".to_owned()),
+            (6, "use crate::typography::{MONO, UI};".to_owned()),
+            (7, ".h(px(1.)).bg(p.line)".to_owned()),
         ]
     );
 }

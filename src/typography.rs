@@ -7,7 +7,7 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use gpui_kit::{App, FontFeatures, FontWeight, SharedString, Styled, px};
+use gpui_kit::{App, Font, FontFeatures, FontWeight, Styled, font, px};
 
 use crate::look::look;
 
@@ -101,12 +101,13 @@ pub trait Type: Styled + Sized {
 
 impl<T: Styled> Type for T {}
 
-/// The family a control's words are measured in: the look's control face, else its interface
-/// face.
-pub(crate) fn control_family() -> SharedString {
+/// The face a control's words are measured in: the look's control face, else its interface face.
+pub(crate) fn control_font() -> Font {
     let look = look();
-    look.fonts
-        .control
-        .clone()
-        .unwrap_or_else(|| look.fonts.ui.clone())
+    font(
+        look.fonts
+            .control
+            .clone()
+            .unwrap_or_else(|| look.fonts.ui.clone()),
+    )
 }
