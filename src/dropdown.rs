@@ -20,6 +20,7 @@ use crate::color::mix;
 use crate::icons::{Icon, icon};
 use crate::interact::{dismiss_on_navigate, hoverable, open_holding_overlay};
 use crate::layer;
+use crate::look::{Shaped as _, Surface};
 use crate::motion::{ENTER, HOVER, Motion, RISE};
 use crate::theme::palette;
 use crate::typography::Type;
@@ -137,26 +138,35 @@ impl RenderOnce for Dropdown {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = palette(cx);
         let toggle = self.on_toggle.clone();
+        // The words go in after the fill, which the hover paints.
+        let content: Vec<AnyElement> = self
+            .leading
+            .map(|glyph| {
+                icon(glyph)
+                    .size(px(14. * glyph.scale()))
+                    .text_color(p.faint)
+                    .into_any_element()
+            })
+            .into_iter()
+            .chain([
+                self.label.into_any_element(),
+                icon(Icon::Choose)
+                    .size(px(10.))
+                    .text_color(p.faint)
+                    .into_any_element(),
+            ])
+            .collect();
         let button = div()
             .id(self.id.clone())
             .h(px(TRIGGER))
             .px(px(9.))
-            .rounded(px(7.))
             .flex()
             .items_center()
             .gap(px(6.))
             .text_size(px(12.5))
+            .control_face()
             .when(self.strong, |d| d.medium())
             .when(self.mono, |d| d.mono(12.))
-            .when_some(self.leading, |d, glyph| {
-                d.child(
-                    icon(glyph)
-                        .size(px(14. * glyph.scale()))
-                        .text_color(p.faint),
-                )
-            })
-            .child(self.label)
-            .child(icon(Icon::Choose).size(px(10.)).text_color(p.faint))
             .when_some(toggle, |d, toggle| {
                 d.cursor_pointer()
                     .on_click(move |_, window, cx| toggle(window, cx))
@@ -164,7 +174,9 @@ impl RenderOnce for Dropdown {
         let (open, ink) = (self.open, if self.strong { p.text } else { p.mute });
         let button = hoverable(button, move |d, t| {
             let t = if open { 1.0 } else { t };
-            d.bg(p.hover.opacity(t)).text_color(mix(ink, p.text, t))
+            d.surface(Surface::new(px(7.)).fill(p.hover.opacity(t)))
+                .text_color(mix(ink, p.text, t))
+                .children(content)
         });
         let root = div().relative().flex_none().child(button);
         // The list comes and goes like the "⋯" menu's: it stays drawn until its close ends.
@@ -265,17 +277,17 @@ pub(crate) fn list_overlay(
                 .max_w(px(MENU_MAX).min(viewport.width - px(16.))),
         })
         .p(px(4.))
-        .rounded(px(10.))
-        .bg(p.card)
-        .border_1()
-        .border_color(p.line2)
-        .shadow(vec![BoxShadow {
-            color: p.shadow.opacity(0.5),
-            offset: point(px(0.), px(12.)),
-            blur_radius: px(32.),
-            spread_radius: px(0.),
-            inset: false,
-        }])
+        .surface(Surface::new(px(10.)).fill(p.card).line(p.line2))
+        .drop_shadow(
+            vec![BoxShadow {
+                color: p.shadow.opacity(0.5),
+                offset: point(px(0.), px(12.)),
+                blur_radius: px(32.),
+                spread_radius: px(0.),
+                inset: false,
+            }],
+            p.shadow,
+        )
         .ui_text()
         .text_color(p.text)
         .flex()
@@ -395,83 +407,87 @@ impl RenderOnce for MenuItem {
         let label = self.label;
         let label_id = ElementId::Name(format!("{}-label", id_text(&self.id)).into());
         let detail_id = ElementId::Name(format!("{}-detail", id_text(&self.id)).into());
+        // The entry's parts go in after the fill, which the hover paints.
+        // The icon has a cell of its own, 14 px wide whatever the glyph's scale (the stop's is
+        // larger), so that every label starts at the same x.
+        let cell = match (self.leading, self.slot) {
+            (None, false) => None,
+            (leading, _) => Some(
+                div()
+                    .w(px(14.))
+                    .h(px(14.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .children(leading.map(|glyph| {
+                        icon(glyph)
+                            .size(px(14. * glyph.scale()))
+                            .text_color(p.faint)
+                    }))
+                    .into_any_element(),
+            ),
+        };
+        // An entry is one line: a label is cut, never wrapped, when it cannot fit.
+        let words = div()
+            .flex_1()
+            .min_w_0()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .id(label_id)
+                    .aria_label(label.clone())
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(label)
+                    .test_support(),
+            )
+            .when_some(self.detail, |d, detail| {
+                d.child(
+                    div()
+                        .id(detail_id)
+                        .aria_label(detail.clone())
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .text_size(px(11.5))
+                        .text_color(p.faint)
+                        .child(detail)
+                        .test_support(),
+                )
+            })
+            .into_any_element();
+        let note = self.note.map(|note| {
+            div()
+                .flex_none()
+                .mono(11.)
+                .text_color(p.faint)
+                .child(note)
+                .into_any_element()
+        });
+        let content: Vec<AnyElement> = cell.into_iter().chain([words]).chain(note).collect();
         let item = div()
             .id(self.id)
             .flex_none()
             .min_h(px(30.))
             .px(px(10.))
             .py(px(5.))
-            .rounded(px(6.))
             .flex()
             .items_center()
             .gap(px(8.))
             .text_size(px(13.))
-            // The icon has a cell of its own, 14 px wide whatever the glyph's scale (the stop's
-            // is larger), so that every label starts at the same x.
-            .map(|d| match (self.leading, self.slot) {
-                (None, false) => d,
-                (leading, _) => d.child(
-                    div()
-                        .w(px(14.))
-                        .h(px(14.))
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .children(leading.map(|glyph| {
-                            icon(glyph)
-                                .size(px(14. * glyph.scale()))
-                                .text_color(p.faint)
-                        })),
-                ),
-            })
-            // An entry is one line: a label is cut, never wrapped, when it cannot fit.
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .child(
-                        div()
-                            .id(label_id)
-                            .aria_label(label.clone())
-                            .overflow_hidden()
-                            .whitespace_nowrap()
-                            .text_ellipsis()
-                            .child(label)
-                            .test_support(),
-                    )
-                    .when_some(self.detail, |d, detail| {
-                        d.child(
-                            div()
-                                .id(detail_id)
-                                .aria_label(detail.clone())
-                                .overflow_hidden()
-                                .whitespace_nowrap()
-                                .text_ellipsis()
-                                .text_size(px(11.5))
-                                .text_color(p.faint)
-                                .child(detail)
-                                .test_support(),
-                        )
-                    }),
-            )
-            .when_some(self.note, |d, note| {
-                d.child(div().flex_none().mono(11.).text_color(p.faint).child(note))
-            })
             .when_some(self.on_click, |d, f| {
                 d.cursor_pointer()
                     .on_click(move |_, window, cx| f(window, cx))
             });
         hoverable(item, move |d, t| {
             let t = if selected { 1.0 } else { t };
-            let d = d.text_color(mix(ink, hover_ink, t));
-            if selected {
-                d.bg(p.sel)
-            } else {
-                d.bg(hover_bg.opacity(t))
-            }
+            let fill = if selected { p.sel } else { hover_bg.opacity(t) };
+            d.text_color(mix(ink, hover_ink, t))
+                .surface(Surface::new(px(6.)).fill(fill))
+                .children(content)
         })
     }
 }

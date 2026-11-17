@@ -17,6 +17,7 @@ use gpui_kit::{
 
 use crate::color::mix;
 use crate::interact::fade;
+use crate::look::{Radius, Shaped as _};
 use crate::motion::{HOVER, Motion, PANEL};
 use crate::seen;
 use crate::space;
@@ -166,7 +167,7 @@ impl RenderOnce for Dots {
                     .flex_none()
                     .h(px(6.))
                     .w(px(6. + 10. * long))
-                    .rounded_full()
+                    .corners(Radius::Full)
                     .bg(mix(mix(p.line2, p.mute, long), p.acc, filled))
                     .test_support()
             })

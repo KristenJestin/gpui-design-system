@@ -351,12 +351,6 @@ pub(crate) trait Shaped: Styled + ParentElement + Sized {
         self
     }
 
-    /// A border of the look's width all around, its colour set apart.
-    fn line_width(self) -> Self {
-        let width = look().border;
-        self.border(width)
-    }
-
     /// A separating line of the look's width on `side`, in `color`.
     fn edge(mut self, side: Side, color: Hsla) -> Self {
         let width = Some(look().border.into());
@@ -709,7 +703,6 @@ mod tests {
             div().border_l_1().border_color(line),
             "a guide",
         );
-        same(div().line_width(), div().border_1(), "a border's width");
         same(div().float_shadow(), div().shadow_sm(), "a floating button");
         let soft = vec![BoxShadow {
             color: line,
@@ -767,8 +760,8 @@ mod tests {
                     .p(px(3.))
                     .surface(
                         Surface::new(px(8.))
-                            .fill(hsla(0., 0., 0.5, 1.))
-                            .line(hsla(0., 0., 0.9, 1.)),
+                            .fill(hsla(0.6, 0.2, 0.5, 1.))
+                            .line(hsla(0.6, 0.2, 0.9, 1.)),
                     )
                     .child(div().id("inside").size_full().test_support())
                     .test_support(),

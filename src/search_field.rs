@@ -11,20 +11,19 @@ use std::sync::Arc;
 
 use gpui_kit::base::input::{Input, InputEvent, InputState};
 use gpui_kit::{
-    App, Context, ElementId, Entity, EntityId, Focusable, InteractiveElement, IntoElement,
-    ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Subscription,
-    Window, div, px,
+    AnyElement, App, Context, ElementId, Entity, EntityId, Focusable, InteractiveElement,
+    IntoElement, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
+    Subscription, Window, div, px,
 };
 
 use crate::button::Button;
 use crate::color::mix;
 use crate::icons::{Icon, icon};
 use crate::interact::{fade, hoverable};
+use crate::look::{Shaped as _, Surface, look};
 use crate::motion::{HOVER, PANEL};
 use crate::theme::palette;
 
-/// The height of the field, as a select's.
-const HEIGHT: f32 = 34.;
 /// The width of the clear button once it has unfolded: the icon button's.
 const CLEAR: f32 = 28.;
 /// The room between the text and the clear button.
@@ -148,16 +147,31 @@ impl RenderOnce for SearchField {
                 )
         });
         let input = self.input.clone();
+        // The parts go in after the surface, whose border the hover paints.
+        let content: Vec<AnyElement> = [
+            icon(Icon::Search)
+                .size(px(13.))
+                .mr(px(8.))
+                .text_color(p.faint)
+                .into_any_element(),
+            div()
+                .flex_1()
+                .min_w_0()
+                .child(Input::new(&self.input))
+                .into_any_element(),
+        ]
+        .into_iter()
+        .chain(clear.map(IntoElement::into_any_element))
+        .collect();
+        // The height of the field, as a select's.
+        let sizes = look().sizes;
         let field = div()
             .id(self.id.clone())
             .aria_label(self.label)
             .w_full()
-            .h(px(HEIGHT))
-            .pl(px(10.))
+            .h(sizes.field)
+            .pl(sizes.field_padding)
             .pr(px(3.))
-            .rounded(px(8.))
-            .bg(p.field)
-            .border_1()
             .flex()
             .items_center()
             .text_size(px(13.))
@@ -168,20 +182,17 @@ impl RenderOnce for SearchField {
                     cx.stop_propagation();
                     input.update(cx, |input, cx| input.clean(window, cx));
                 }
-            })
-            .child(
-                icon(Icon::Search)
-                    .size(px(13.))
-                    .mr(px(8.))
-                    .text_color(p.faint),
-            )
-            .child(div().flex_1().min_w_0().child(Input::new(&self.input)))
-            .children(clear);
+            });
         let ring_id = part(&self.id, "ring");
         hoverable(field, move |d, hover| {
             let on = hover.max(ring);
             crate::seen::note(&ring_id, on);
-            d.border_color(mix(p.field_line, p.focus_line, on))
+            d.surface(
+                Surface::new(px(8.))
+                    .fill(p.field)
+                    .line(mix(p.field_line, p.focus_line, on)),
+            )
+            .children(content)
         })
     }
 }

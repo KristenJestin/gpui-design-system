@@ -13,6 +13,7 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, ElementId, FontWeight, InteractiveElement, IntoElement, MouseButton,
     ParentElement, Pixels, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
@@ -22,6 +23,7 @@ use gpui_kit::{
 use crate::color::mix;
 use crate::icons::{Icon, icon};
 use crate::interact::selectable;
+use crate::look::{Corners, Radius, Shaped as _, Surface, look};
 use crate::motion::Motion;
 use crate::reveal::{Around, Shown, changing, drive, shown_frame};
 use crate::theme::palette;
@@ -139,9 +141,7 @@ impl RenderOnce for ChoiceRow {
             .items_start()
             .gap(px(10.))
             .px(px(10.))
-            .py(px(8.))
-            .rounded(px(8.))
-            .border_1();
+            .py(px(8.));
         if let Some(on_click) = self.on_click.clone() {
             row = row
                 .cursor_pointer()
@@ -222,12 +222,18 @@ impl RenderOnce for ChoiceRow {
             .child(top)
             .children(line);
         let shape = self.shape;
+        let look = look();
+        let own_border = look.border == px(1.) && !matches!(look.corners, Corners::Notch { .. });
+        let mark_shape = match shape {
+            Shape::Round => Surface::full(),
+            Shape::Square => Surface::new(px(4.)),
+        };
         selectable(row, self.chosen, move |d, hover, on| {
             let glyph = div().id(glyph_id);
             let glyph = match shape {
                 Shape::Round => glyph
                     .size(px(6. * on))
-                    .rounded_full()
+                    .corners(Radius::Full)
                     .bg(p.on_acc)
                     .test_support(),
                 Shape::Square => glyph
@@ -243,30 +249,29 @@ impl RenderOnce for ChoiceRow {
                 .flex()
                 .items_center()
                 .justify_center()
-                .border(px(1.5))
-                .border_color(mix(p.line2, p.acc, on))
-                .bg(mix(p.field, p.acc, on))
-                .when_round(shape == Shape::Round)
+                .surface(
+                    mark_shape
+                        .fill(mix(p.field, p.acc, on))
+                        .line(mix(p.line2, p.acc, on)),
+                )
+                // The kit's own mark is drawn a half pixel heavier than its borders; a look that
+                // gives its own border, or notches its corners, draws it at the look's width.
+                .when(own_border, |d| d.border(px(1.5)))
                 .child(glyph)
                 .test_support();
-            d.bg(mix(p.hover.opacity(hover), p.bg, on))
-                .border_color(p.line2.opacity(on))
-                .child(mark)
-                .child(words)
+            d.surface(
+                Surface::new(px(8.))
+                    .fill(mix(p.hover.opacity(hover), p.bg, on))
+                    .line(p.line2.opacity(on)),
+            )
+            .child(mark)
+            .child(words)
         })
     }
 }
 
-/// The two small conveniences the row needs on a styled element.
+/// The small convenience the row needs on a styled element.
 trait RowStyle: Styled + Sized {
-    fn when_round(self, round: bool) -> Self {
-        if round {
-            self.rounded_full()
-        } else {
-            self.rounded(px(4.))
-        }
-    }
-
     fn when_faint(self, faint: bool, faint_ink: gpui_kit::Hsla, ink: gpui_kit::Hsla) -> Self {
         if faint {
             self.text_color(faint_ink)

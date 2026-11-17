@@ -9,22 +9,20 @@
 use std::sync::Arc;
 
 use gpui_kit::{
-    App, ClickEvent, ElementId, InteractiveElement, IntoElement, ParentElement, RenderOnce,
-    SharedString, StatefulInteractiveElement, Styled, TestSupportExt, TextRun, Window, div, font,
-    px,
+    AnyElement, App, ClickEvent, ElementId, Font, InteractiveElement, IntoElement, ParentElement,
+    RenderOnce, SharedString, StatefulInteractiveElement, Styled, TestSupportExt, TextRun, Window,
+    div, font, px,
 };
 
 use crate::color::mix;
 use crate::interact::hoverable;
+use crate::look::{Shaped as _, Side, Surface, Which, look};
 use crate::motion::{Motion, PANEL};
 use crate::theme::palette;
-use crate::typography::{MONO, Type, UI};
+use crate::typography::{MONO, Type, control_font};
 
 type OnChoose = Box<dyn Fn(usize, &mut Window, &mut App) + 'static>;
 
-const HEIGHT: f32 = 34.;
-/// The space on each side of a tab's words.
-const PAD: f32 = 10.;
 const TEXT: f32 = 12.5;
 const COUNT: f32 = 11.;
 /// Between a tab's name and its count.
@@ -91,10 +89,10 @@ impl Tabs {
 }
 
 /// The width of `words` set in `face` at `size`.
-fn width_of(words: &SharedString, face: &'static str, size: f32, window: &Window) -> f32 {
+fn width_of(words: &SharedString, face: Font, size: f32, window: &Window) -> f32 {
     let run = TextRun {
         len: words.len(),
-        font: font(face),
+        font: face,
         color: gpui_kit::Hsla::default(),
         background_color: None,
         underline: None,
@@ -111,6 +109,9 @@ fn width_of(words: &SharedString, face: &'static str, size: f32, window: &Window
 impl RenderOnce for Tabs {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = palette(cx);
+        let sizes = look().sizes;
+        let height = f32::from(sizes.tab);
+        let pad = f32::from(sizes.tab_padding);
         let slide = window.use_keyed_state(
             ElementId::NamedChild(Arc::new(self.id.clone()), "slide".into()),
             cx,
@@ -136,8 +137,8 @@ impl RenderOnce for Tabs {
                 let count = tab
                     .count
                     .as_ref()
-                    .map_or(0., |count| GAP + width_of(count, MONO, COUNT, window));
-                (width_of(&tab.label, UI, TEXT, window) + count + 2. * PAD).ceil()
+                    .map_or(0., |count| GAP + width_of(count, font(MONO), COUNT, window));
+                (width_of(&tab.label, control_font(), TEXT, window) + count + 2. * pad).ceil()
             })
             .collect();
         let lefts: Vec<f32> = widths
@@ -168,30 +169,33 @@ impl RenderOnce for Tabs {
             // How near the marker is to this tab: 1 on it, 0 a tab away or more.
             let near = (1.0 - (at - index as f32).abs()).clamp(0.0, 1.0);
             let on_choose = on_choose.clone();
-            let mut element = div()
-                .id(name(&tab.key, None))
-                .aria_label(tab.label.clone())
-                .aria_selected(index == chosen)
-                .flex_none()
-                .w(px(widths[index]))
-                .h(px(HEIGHT - BAR))
-                .flex()
-                .items_center()
-                .justify_center()
-                .gap(px(GAP))
-                .whitespace_nowrap()
-                .rounded_t(px(6.))
-                .font_family(UI)
-                .text_size(px(TEXT))
-                .child(tab.label.clone())
-                .children(tab.count.clone().map(|count| {
+            // The words go in after the fill, which the hover paints.
+            let content: Vec<AnyElement> = std::iter::once(tab.label.clone().into_any_element())
+                .chain(tab.count.clone().map(|count| {
                     div()
                         .id(name(&tab.key, Some("count")))
                         .aria_label(count.clone())
                         .mono(COUNT)
                         .child(count)
                         .test_support()
-                }));
+                        .into_any_element()
+                }))
+                .collect();
+            let mut element = div()
+                .id(name(&tab.key, None))
+                .aria_label(tab.label.clone())
+                .aria_selected(index == chosen)
+                .flex_none()
+                .w(px(widths[index]))
+                .h(px(height - BAR))
+                .flex()
+                .items_center()
+                .justify_center()
+                .gap(px(GAP))
+                .whitespace_nowrap()
+                .ui_face()
+                .control_face()
+                .text_size(px(TEXT));
             if index != chosen
                 && let Some(on_choose) = on_choose
             {
@@ -200,22 +204,24 @@ impl RenderOnce for Tabs {
                     .on_click(move |_: &ClickEvent, window, cx| on_choose(index, window, cx));
             }
             hoverable(element, move |d, hover| {
-                d.bg(p.hover.opacity(hover * (1. - near))).text_color(mix(
-                    mix(p.faint, p.text, hover),
-                    p.text,
-                    near,
-                ))
+                d.surface(
+                    Surface::new(px(6.))
+                        .at(Which::Top)
+                        .fill(p.hover.opacity(hover * (1. - near))),
+                )
+                .text_color(mix(mix(p.faint, p.text, hover), p.text, near))
+                .children(content)
             })
         });
         // The rule under the tabs is the wrapper's border; the tabs scroll sideways when the
         // window is too narrow for all of them, the marker with them.
-        div().w_full().border_b_1().border_color(p.line).child(
+        div().w_full().edge(Side::Bottom, p.line).child(
             div()
                 .id(self.id.clone())
                 .aria_label(self.label.clone())
                 .relative()
                 .w_full()
-                .h(px(HEIGHT))
+                .h(px(height))
                 .flex()
                 .items_start()
                 .overflow_x_scroll()
@@ -230,8 +236,7 @@ impl RenderOnce for Tabs {
                         .left(px(lerp(lefts[low], lefts[high])))
                         .w(px(lerp(widths[low], widths[high])))
                         .h(px(BAR))
-                        .rounded_t(px(2.))
-                        .bg(p.acc)
+                        .surface(Surface::new(px(2.)).at(Which::Top).fill(p.acc))
                         .test_support(),
                 )
                 .test_support(),

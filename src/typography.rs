@@ -54,10 +54,15 @@ pub trait Type: Styled + Sized {
     /// The interface face at body size: the look's ([`Fonts::ui`](crate::look::Fonts::ui)), Geist
     /// by default.
     fn ui_text(self) -> Self {
-        self.font_family(look().fonts.ui.clone())
+        self.ui_face()
             .font_features(tabular())
             .text_size(px(BODY))
             .line_height(px(BODY * 1.5))
+    }
+
+    /// The interface face alone, at the size and the figures around it.
+    fn ui_face(self) -> Self {
+        self.font_family(look().fonts.ui.clone())
     }
 
     /// The look's title face, when it gives one; the face around it otherwise.

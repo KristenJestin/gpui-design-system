@@ -10,6 +10,7 @@ use gpui_kit::{
 
 use crate::color::mix;
 use crate::interact::{fade, feel, wire};
+use crate::look::{Radius, Shaped as _, Surface, look};
 use crate::motion::{HOVER, Motion, PANEL};
 use crate::theme::palette;
 
@@ -89,6 +90,9 @@ impl RenderOnce for Switch {
             ElementId::Name(text) => ElementId::Name(format!("{text}-{name}").into()),
             other => ElementId::NamedChild(Arc::new(other.clone()), name.into()),
         };
+        // The knob sits inside the border: its travel and its place are what the border leaves.
+        let line = f32::from(look().border);
+        let travel = 30. - 2. * line - 2. * 2. - 12.;
         let track = div()
             .id(part("track"))
             .relative()
@@ -96,18 +100,15 @@ impl RenderOnce for Switch {
             .mt(px(1.))
             .w(px(30.))
             .h(px(18.))
-            .rounded_full()
-            .bg(track)
-            .border_1()
-            .border_color(border)
+            .surface(Surface::full().fill(track).line(border))
             .child(
                 div()
                     .id(part("knob"))
                     .absolute()
-                    .top(px(2.))
-                    .left(px(2. + 12. * at))
+                    .top(px((18. - 2. * line - 12.) / 2.))
+                    .left(px(2. + travel * at))
                     .size(px(12.))
-                    .rounded_full()
+                    .corners(Radius::Full)
                     .bg(knob)
                     .test_support(),
             )
