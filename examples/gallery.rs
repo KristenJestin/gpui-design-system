@@ -2,19 +2,21 @@
 //! pointer to be seen, so the page can be captured in a headless compositor.
 //!
 //! ```text
-//! cargo run -p gpui-design-system --example gallery [-- --os-release <path>] [--drawer]
+//! cargo run -p gpui-design-system --example gallery [-- --os-release <path>] [--drawer] [--pixel]
 //! ```
 //!
 //! The theme is chosen as an application's is: the desktop's when the kit has a source for this
 //! desktop and its theme can be used (`--os-release` points at another file than
 //! `/etc/os-release`), the kit's own look otherwise. `--drawer` shows the right drawer open.
+//! `--pixel` draws the kit in a pixel look: notched corners, a 2 px border, a hard shadow, a
+//! 4 px grid, the controls' words in the mono face.
 
 use std::path::PathBuf;
 
 use gpui_design_system::{
-    Badge, Button, Card, Drawer, Fold, Icon, Icons, Identity, ListRow, Piece, PulsingLabel, Side,
-    Token, TokenField, TokenLook, TokenText, TreeRow, Type, enter, icon, meta, palette,
-    section_label, tree_children,
+    Badge, Button, Card, Corners, Drawer, Fold, Fonts, Icon, Icons, Identity, ListRow, Look, Piece,
+    PulsingLabel, Shadow, Side, Sizes, Token, TokenField, TokenLook, TokenText, TreeRow, Type,
+    enter, icon, meta, palette, section_label, tree_children, typography,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -25,16 +27,18 @@ use gpui_kit::{
 fn main() {
     let mut os_release = None;
     let mut drawer = false;
+    let mut look = Look::default();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--os-release" => os_release = Some(PathBuf::from(args.next().expect("a path"))),
             "--drawer" => drawer = true,
+            "--pixel" => look = pixel(),
             other => panic!("unknown argument {other}"),
         }
     }
     gpui_kit::application().with_assets(Icons).run(move |cx| {
-        gpui_design_system::init(identity(os_release), cx);
+        gpui_design_system::init_with(identity(os_release), look, cx);
         let bounds = Bounds::centered(None, size(px(1280.), px(800.)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Maximized(bounds)),
@@ -45,6 +49,27 @@ fn main() {
         })
         .expect("a window");
     });
+}
+
+/// A look of hard pixels, in the bundled faces.
+fn pixel() -> Look {
+    Look {
+        fonts: Fonts {
+            control: Some(typography::MONO.into()),
+            ..Fonts::default()
+        },
+        corners: Corners::Notch {
+            step: px(2.),
+            steps: 1,
+        },
+        border: px(2.),
+        shadow: Some(Shadow {
+            x: px(4.),
+            y: px(4.),
+        }),
+        grid: Some(px(4.)),
+        sizes: Sizes::default(),
+    }
 }
 
 /// The kit's own look: the kit is built without a desktop source.
