@@ -17,6 +17,7 @@ use gpui_kit::{
     point, px, transparent_black,
 };
 
+use crate::theme::Palette;
 use crate::typography::UI;
 
 /// What an application restyles of the kit. `Look::default()` is the kit's own design.
@@ -88,11 +89,45 @@ pub enum Corners {
 }
 
 /// A hard drop shadow: the surface's own shape, `x` px right and `y` px down, with no blur, in
-/// the palette's shadow colour.
+/// the palette's colour of the role `color`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shadow {
     pub x: Pixels,
     pub y: Pixels,
+    pub color: Role,
+}
+
+/// A role of the palette a hard shadow is drawn in: its colour comes from the theme shown, a
+/// desktop's included.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Role {
+    /// [`Palette::shadow`], at full strength: the overlays' own shadow colour.
+    #[default]
+    Shadow,
+    /// [`Palette::line`]: the borders.
+    Line,
+    /// [`Palette::line2`]: the stronger borders, which read on a dark page too.
+    Line2,
+    /// [`Palette::text`]: the ink.
+    Text,
+    /// [`Palette::faint`]: the faintest ink.
+    Faint,
+    /// [`Palette::acc`]: the primary.
+    Accent,
+}
+
+impl Role {
+    /// The colour of this role in `palette`.
+    pub fn of(self, palette: &Palette) -> Hsla {
+        match self {
+            Self::Shadow => palette.shadow,
+            Self::Line => palette.line,
+            Self::Line2 => palette.line2,
+            Self::Text => palette.text,
+            Self::Faint => palette.faint,
+            Self::Accent => palette.acc,
+        }
+    }
 }
 
 /// The heights of the controls and the space on each side of their words.
@@ -203,6 +238,7 @@ impl Look {
             shadow: self.shadow.map(|shadow| Shadow {
                 x: snap(shadow.x),
                 y: snap(shadow.y),
+                color: shadow.color,
             }),
             grid: self.grid,
             sizes: self.sizes.map(snap),
@@ -413,11 +449,11 @@ pub(crate) trait Shaped: Styled + ParentElement + Sized {
         }
     }
 
-    /// A shadow: the look's hard one when it has one, `soft` otherwise. `color` is the shadow's
-    /// colour at the strength the element takes of it.
-    fn drop_shadow(self, soft: Vec<BoxShadow>, color: Hsla) -> Self {
+    /// A shadow: the look's hard one, in its role of `palette`, when it has one; `soft`
+    /// otherwise.
+    fn drop_shadow(self, soft: Vec<BoxShadow>, palette: &Palette) -> Self {
         match look().shadow {
-            Some(shadow) => self.shadow(vec![hard_shadow(shadow, color)]),
+            Some(shadow) => self.shadow(vec![hard_shadow(shadow, palette)]),
             None => self.shadow(soft),
         }
     }
@@ -426,9 +462,9 @@ pub(crate) trait Shaped: Styled + ParentElement + Sized {
 impl<T: Styled + ParentElement> Shaped for T {}
 
 /// The look's hard shadow as GPUI draws one: no blur, no spread.
-pub(crate) fn hard_shadow(shadow: Shadow, color: Hsla) -> BoxShadow {
+pub(crate) fn hard_shadow(shadow: Shadow, palette: &Palette) -> BoxShadow {
     BoxShadow {
-        color,
+        color: shadow.color.of(palette),
         offset: point(shadow.x, shadow.y),
         blur_radius: px(0.),
         spread_radius: px(0.),
@@ -712,10 +748,50 @@ mod tests {
             inset: false,
         }];
         same(
-            div().drop_shadow(soft.clone(), line),
+            div().drop_shadow(soft.clone(), &Palette::base()),
             div().shadow(soft),
             "an overlay's shadow",
         );
+        assert_eq!(Role::default(), Role::Shadow);
+        assert_eq!(Role::Shadow.of(&Palette::base()), Palette::base().shadow);
+    }
+
+    #[test]
+    fn a_hard_shadow_with_a_chosen_role_draws_in_that_role_s_colour() {
+        type Of = fn(&Palette) -> Hsla;
+        let roles: [(Role, Of); 6] = [
+            (Role::Shadow, |p: &Palette| p.shadow),
+            (Role::Line, |p: &Palette| p.line),
+            (Role::Line2, |p: &Palette| p.line2),
+            (Role::Text, |p: &Palette| p.text),
+            (Role::Faint, |p: &Palette| p.faint),
+            (Role::Accent, |p: &Palette| p.acc),
+        ];
+        for (role, of) in roles {
+            install(&Look {
+                shadow: Some(Shadow {
+                    x: px(4.),
+                    y: px(4.),
+                    color: role,
+                }),
+                ..Look::default()
+            });
+            for p in [Palette::base(), Palette::light()] {
+                let hard = vec![BoxShadow {
+                    color: of(&p),
+                    offset: point(px(4.), px(4.)),
+                    blur_radius: px(0.),
+                    spread_radius: px(0.),
+                    inset: false,
+                }];
+                assert_eq!(
+                    style(div().drop_shadow(Vec::new(), &p)),
+                    style(div().shadow(hard)),
+                    "{role:?}"
+                );
+            }
+        }
+        install(&Look::default());
     }
 
     #[test]
@@ -726,18 +802,20 @@ mod tests {
             shadow: Some(Shadow {
                 x: px(3.),
                 y: px(3.),
+                color: Role::Line2,
             }),
             ..Look::default()
         });
         let line = hsla(0.4, 0.5, 0.6, 1.);
+        let p = Palette::base();
         assert_eq!(
             style(div().surface(Surface::full().line(line))),
             style(div().rounded(px(0.)).border(px(2.)).border_color(line))
         );
         assert_eq!(
-            style(div().drop_shadow(Vec::new(), line)),
+            style(div().drop_shadow(Vec::new(), &p)),
             style(div().shadow(vec![BoxShadow {
-                color: line,
+                color: p.line2,
                 offset: point(px(3.), px(3.)),
                 blur_radius: px(0.),
                 spread_radius: px(0.),
@@ -894,6 +972,7 @@ mod tests {
             shadow: Some(Shadow {
                 x: px(3.),
                 y: px(-1.),
+                color: Role::Shadow,
             }),
             corners: Corners::Notch {
                 step: px(1.),
@@ -910,7 +989,8 @@ mod tests {
             look.shadow,
             Some(Shadow {
                 x: px(4.),
-                y: px(-4.)
+                y: px(-4.),
+                color: Role::Shadow,
             }),
             "an offset is at least one unit, its sign kept"
         );

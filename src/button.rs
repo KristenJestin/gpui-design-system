@@ -288,7 +288,7 @@ impl RenderOnce for Button {
                         .bottom(-shadow.y)
                         .left(shadow.x)
                         .right(-shadow.x)
-                        .surface(shape.fill(p.shadow))
+                        .surface(shape.fill(shadow.color.of(&p)))
                         .test_support(),
                 )
             })

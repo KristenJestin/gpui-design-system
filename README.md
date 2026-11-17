@@ -89,7 +89,7 @@ the theme's, a desktop source's included.
 | `fonts: Fonts { ui, title, control }` | the families of the interface (`Type::ui_text`), of the titles (`title_text`) and of the controls' words (`control_text`: buttons, segmented controls, selects, tabs, chips); `None` takes the interface's | `"Geist"`, `None`, `None` |
 | `corners: Corners` | `Rounded` (the kit's radii), `Square`, or `Notch { step, steps }`: each corner cut by `steps` stairs of `step` px, the border following them | `Rounded` |
 | `border: Pixels` | the width of every border and separating line | `px(1.)` |
-| `shadow: Option<Shadow { x, y }>` | a hard shadow, offset and unblurred, in the palette's shadow colour, under the buttons and the overlays; a pressed button moves onto it over `PRESS` (at once with reduced motion) instead of shrinking | `None` |
+| `shadow: Option<Shadow { x, y, color }>` | a hard shadow, offset and unblurred, under the buttons and the overlays, in the colour of a role of the palette (`look::Role`: `Shadow`, the overlays' shadow colour at full strength, `Line`, `Line2`, `Text`, `Faint` or `Accent`), so it follows the theme; a pressed button moves onto it over `PRESS` (at once with reduced motion) instead of shrinking | `None` |
 | `grid: Option<Pixels>` | the unit the look's sizes, paddings and shadow offset are whole multiples of, rounded to the nearest | `None` |
 | `sizes: Sizes` | the heights of the controls and the space beside their words: `button` 30, `button_padding` 12, `icon_button` 28, `float_button` 32, `field` 34, `field_padding` 10, `pill` 24, `pill_padding` 9, `segmented` 26, `segment_padding` 9, `tab` 34, `tab_padding` 10, `chip` 22, `chip_padding` 9 | the kit's |
 
@@ -102,6 +102,7 @@ A pixel look: notched corners, a 2 px border, a hard shadow, a 4 px grid and fac
 ```rust
 use std::borrow::Cow;
 
+use gpui_design_system::look::Role;
 use gpui_design_system::{Corners, Fonts, Icons, Identity, Look, Shadow, Sizes, typography};
 use gpui_kit::px;
 
@@ -114,7 +115,8 @@ fn pixel() -> Look {
         },
         corners: Corners::Notch { step: px(2.), steps: 1 },
         border: px(2.),
-        shadow: Some(Shadow { x: px(4.), y: px(4.) }),
+        // The stronger border colour: black would hardly read on a dark page.
+        shadow: Some(Shadow { x: px(4.), y: px(4.), color: Role::Line2 }),
         grid: Some(px(4.)),
         sizes: Sizes { button: px(32.), ..Sizes::default() },
     }

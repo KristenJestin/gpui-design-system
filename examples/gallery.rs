@@ -13,6 +13,7 @@
 
 use std::path::PathBuf;
 
+use gpui_design_system::look::Role;
 use gpui_design_system::{
     Badge, Button, Card, Corners, Drawer, Fold, Fonts, Icon, Icons, Identity, ListRow, Look, Piece,
     PulsingLabel, Shadow, Side, Sizes, Token, TokenField, TokenLook, TokenText, TreeRow, Type,
@@ -66,6 +67,7 @@ fn pixel() -> Look {
         shadow: Some(Shadow {
             x: px(4.),
             y: px(4.),
+            color: Role::Line2,
         }),
         grid: Some(px(4.)),
         sizes: Sizes::default(),

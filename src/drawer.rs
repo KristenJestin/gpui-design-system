@@ -144,7 +144,7 @@ impl Render for Drawer {
                     spread_radius: px(-20.),
                     inset: false,
                 }],
-                p.shadow,
+                &p,
             )
             .child(self.content.clone());
         let panel = match self.side {
@@ -215,7 +215,7 @@ impl Drawer {
                     spread_radius: px(0.),
                     inset: false,
                 }],
-                p.shadow,
+                &p,
             )
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
                 if this.open && event.keystroke.key == "escape" {

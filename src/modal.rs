@@ -433,7 +433,7 @@ impl RenderOnce for Modal {
                     spread_radius: px(0.),
                     inset: false,
                 }],
-                p.shadow,
+                &p,
             )
             .ui_text()
             .text_color(p.text)
