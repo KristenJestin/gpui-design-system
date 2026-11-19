@@ -45,16 +45,18 @@ fn ink() -> Hsla {
     hex(0x111111)
 }
 
+/// The quads a grid painted: their bounds from the grid's origin, and their colour.
+type Quads = Vec<(Bounds<Pixels>, Hsla)>;
+
 thread_local! {
-    static PAINTED: RefCell<HashMap<ElementId, Vec<(Bounds<Pixels>, Hsla)>>> =
-        RefCell::new(HashMap::new());
+    static PAINTED: RefCell<HashMap<ElementId, Quads>> = RefCell::new(HashMap::new());
     static ENCODES: Cell<usize> = const { Cell::new(0) };
 }
 
 /// What the grid `id` last painted, for the kit's own tests: each quad's bounds from the grid's
 /// origin, and its colour.
 #[doc(hidden)]
-pub fn painted(id: impl Into<ElementId>) -> Vec<(Bounds<Pixels>, Hsla)> {
+pub fn painted(id: impl Into<ElementId>) -> Quads {
     PAINTED.with(|painted| {
         painted
             .borrow()
