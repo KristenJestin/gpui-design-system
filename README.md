@@ -216,6 +216,23 @@ The text the input holds keeps the label the token was put with. The field's own
 paste (a copy made before the relabel) keeps the look the field holds for the id, and only brings
 the look of an id the field does not know.
 
+## A QR code
+
+`QrCode::new(id, text, label)` draws the QR code of `text` (a link, a pairing code): near-black
+modules on a near-white plate, with the quiet zone of 4 modules inside the plate. The colours are
+the same in every theme, dark ones included, on purpose: a scanner expects dark on light, and a
+plate that followed the palette would pass through mid-greys while a theme changes, at a moment
+it does not scan.
+
+- `label` names what the code holds for assistive technology (never the text itself).
+- `.size(px)` is the most it takes a side (288 by default). The module is the whole number of
+  pixels that fits, at least 1 px, so the plate can be a little smaller than `size`, and larger
+  under (modules + 8) px.
+- `.shown(false)` folds it away and fades it out; `true` unfolds it and fades it in.
+- The error correction is Medium, which keeps a text of 180 characters (a link and a base32 code)
+  at 53 modules. A text over 2331 bytes draws nothing at all: no plate, no label, no unfolding.
+- The encoder is the `qrcodegen` crate (MIT).
+
 ## The rules the kit holds
 
 Its tests are its contract: GPUI's own `.hover(..)` is refused (every colour fades), everything
