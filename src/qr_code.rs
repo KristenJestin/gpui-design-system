@@ -18,6 +18,9 @@ use gpui_kit::{
     SharedString, StatefulInteractiveElement, Styled, TestSupportExt, Window, canvas, div, fill,
     point, px, size,
 };
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+
 use qrcodegen::QrCodeEcc;
 
 use crate::color::readable;
@@ -26,6 +29,31 @@ use crate::reveal::presence;
 use crate::seen;
 use crate::space;
 use crate::theme::{Palette, palette};
+
+thread_local! {
+    static PAINTED: RefCell<HashMap<ElementId, Vec<(Bounds<Pixels>, gpui_kit::Hsla)>>> =
+        RefCell::new(HashMap::new());
+    static ENCODES: Cell<usize> = const { Cell::new(0) };
+}
+
+/// What the grid `id` last painted, for the kit's own tests: each quad's bounds from the grid's
+/// origin, and its colour.
+#[doc(hidden)]
+pub fn painted(id: impl Into<ElementId>) -> Vec<(Bounds<Pixels>, gpui_kit::Hsla)> {
+    PAINTED.with(|painted| {
+        painted
+            .borrow()
+            .get(&id.into())
+            .cloned()
+            .unwrap_or_default()
+    })
+}
+
+/// How many times a text was encoded on this thread, for the kit's own tests.
+#[doc(hidden)]
+pub fn encodes() -> usize {
+    ENCODES.with(Cell::get)
+}
 
 /// The modules of quiet zone a scanner needs on every side of the code.
 const QUIET_ZONE: usize = 4;
@@ -94,6 +122,7 @@ impl RenderOnce for QrCode {
             .flex()
             .items_center()
             .justify_center();
+        ENCODES.with(|count| count.set(count.get() + 1));
         let content = match qrcodegen::QrCode::encode_text(&self.text, QrCodeEcc::Medium) {
             Ok(encoded) => {
                 let (plate, ink) = colours(&palette(cx));
@@ -121,6 +150,7 @@ impl RenderOnce for QrCode {
                     }
                 }
                 let modules_id = part(&self.id, "modules");
+                let painting = modules_id.clone();
                 seen::note(&modules_id, dark as f32);
                 seen::note_colour(&modules_id, ink);
                 seen::note_colour(&part(&self.id, "plate"), plate);
@@ -146,20 +176,29 @@ impl RenderOnce for QrCode {
                                     canvas(
                                         |_, _, _| (),
                                         move |bounds: Bounds<Pixels>, (), window, _| {
+                                            let mut quads = Vec::new();
                                             for (x, y, len) in runs {
                                                 let origin = bounds.origin
                                                     + point(
                                                         px(module * x as f32),
                                                         px(module * y as f32),
                                                     );
-                                                window.paint_quad(fill(
+                                                let quad = Bounds::new(
+                                                    origin,
+                                                    size(px(module * len as f32), px(module)),
+                                                );
+                                                window.paint_quad(fill(quad, ink));
+                                                quads.push((
                                                     Bounds::new(
-                                                        origin,
-                                                        size(px(module * len as f32), px(module)),
+                                                        quad.origin - bounds.origin,
+                                                        quad.size,
                                                     ),
                                                     ink,
                                                 ));
                                             }
+                                            PAINTED.with(|painted| {
+                                                painted.borrow_mut().insert(painting, quads)
+                                            });
                                         },
                                     )
                                     .size_full(),
