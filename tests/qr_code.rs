@@ -1,4 +1,4 @@
-//! `QrCode`: a QR code drawn in the theme's colours, on GPUI's test platform.
+//! `QrCode`: a QR code on a plate that scans in every theme, on GPUI's test platform.
 
 mod common;
 
