@@ -39,6 +39,7 @@ pub mod omarchy;
 pub mod page;
 pub mod pager;
 pub mod path;
+pub mod qr_code;
 pub mod radio;
 pub mod reveal;
 pub mod rows;
@@ -93,6 +94,7 @@ pub use model_choice::{Chosen, ModelChoice, ModelEntry};
 pub use page::{EmptyLine, PageHeader, Section};
 pub use pager::{Dots, Sliding, sliding};
 pub use path::path_line;
+pub use qr_code::QrCode;
 pub use radio::RadioChoices;
 pub use reveal::{
     Changing, Fold, Growing, Presence, PresenceOf, PulsingLabel, changed, changing, enter,
