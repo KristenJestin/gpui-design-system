@@ -16,8 +16,8 @@ use std::path::PathBuf;
 use gpui_design_system::look::Role;
 use gpui_design_system::{
     Badge, Button, Card, Corners, Drawer, Fold, Fonts, Icon, Icons, Identity, ListRow, Look, Piece,
-    PulsingLabel, Shadow, Side, Sizes, Token, TokenField, TokenLook, TokenText, TreeRow, Type,
-    enter, icon, meta, palette, section_label, tree_children, typography,
+    PulsingLabel, QrCode, Shadow, Side, Sizes, Token, TokenField, TokenLook, TokenText, TreeRow,
+    Type, enter, icon, meta, palette, section_label, tree_children, typography,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -552,6 +552,15 @@ impl Render for Gallery {
             )
             .child(TokenText::new("sent", draft()).on_token_click(|_, _, _| {}));
 
+        let qr_code = panel("QR code", cx).child(
+            QrCode::new(
+                "g-qr",
+                "https://hub.example.test/join?invite=7GQ2M9XK4TD0VBHW5ZE8RJNC3FY61PAS",
+                "Example invitation code",
+            )
+            .size(px(192.)),
+        );
+
         div()
             .size_full()
             .relative()
@@ -571,7 +580,8 @@ impl Render for Gallery {
                             .flex_col()
                             .gap(px(18.))
                             .child(type_sample)
-                            .child(inline_tokens),
+                            .child(inline_tokens)
+                            .child(qr_code),
                     )
                     .child(
                         div()

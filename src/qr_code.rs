@@ -7,8 +7,8 @@
 //!
 //! The error correction is Medium (the encoder raises it when that costs no size): a code on a
 //! screen is not scratched or smudged, so the most it must survive is glare and a moiré, and
-//! Medium keeps a text of 180 characters (a link and a base32 code) at 61 modules, which are
-//! 4 px each in the default size. A text over 2331 bytes does not fit at Medium and draws nothing.
+//! Medium keeps a text of 180 characters (a link and an upper-case base32 code) at 53 modules,
+//! which are 4 px each in the default size. A text over 2331 bytes does not fit at Medium and draws nothing.
 //!
 //! Its parts, for a test: the block `<id>` (it folds in and out), the code `<id>-code` (labelled),
 //! the plate `<id>-plate` and the grid of modules `<id>-modules`.
