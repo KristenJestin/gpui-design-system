@@ -34,6 +34,8 @@ struct Host {
     bottom: bool,
     /// The picker inside a dialog, open or not.
     dialog: Option<bool>,
+    /// Twenty more options, after the six.
+    many: bool,
 }
 
 impl Render for Host {
@@ -45,7 +47,14 @@ impl Render for Host {
             "picker",
             "Needs",
             &self.input,
-            OPTIONS.map(|(key, line)| ChipOption::new(key, key).detail(line)),
+            OPTIONS
+                .map(|(key, line)| ChipOption::new(key, key).detail(line))
+                .into_iter()
+                .chain(
+                    (0..20)
+                        .filter(|_| self.many)
+                        .map(|n| ChipOption::new(format!("extra-{n}"), format!("extra {n}"))),
+                ),
             self.chosen.clone(),
         )
         .placeholder("Add…")
@@ -99,6 +108,7 @@ fn host<'a>(
         }),
         bottom,
         dialog,
+        many: false,
     });
     cx.simulate_resize(size(px(600.), px(500.)));
     cx.update(|window, cx| window.render_frame(cx));
@@ -250,7 +260,7 @@ fn typing_filters_the_menu_of_what_is_not_chosen(cx: &mut TestAppContext) {
         "what is chosen is not offered"
     );
     cx.update(|window, _| {
-        assert_eq!(window.find("picker-item-api").label(), Some("api"));
+        assert_eq!(window.find("picker-item-api-label").label(), Some("api"));
         assert_eq!(
             window.find("picker-item-api-detail").label(),
             Some("cargo run -p ledger-api"),
@@ -412,7 +422,7 @@ fn nothing_chosen_says_none(cx: &mut TestAppContext) {
     let (host, cx) = host(&[], false, None, cx);
     cx.update(|window, _| {
         assert_eq!(window.find("picker-label").label(), Some("Needs"));
-        assert_eq!(window.find("picker-none").label(), Some("None"));
+        assert_eq!(window.find("picker-none-text").label(), Some("None"));
     });
     assert!(
         !listed("picker-count", cx),
@@ -430,7 +440,7 @@ fn nothing_chosen_says_none(cx: &mut TestAppContext) {
     set_chosen(&host, &[], cx);
     advance(cx, PANEL * 2);
     assert_eq!(
-        cx.update(|window, _| window.find("picker-none").label().map(str::to_owned)),
+        cx.update(|window, _| window.find("picker-none-text").label().map(str::to_owned)),
         Some("None".into()),
         "and comes back when the last one leaves"
     );
@@ -474,7 +484,7 @@ fn a_standalone_chip_unfolds_where_it_is_drawn_and_says_its_detail(cx: &mut Test
                 RemovableChip::new("one", "web")
                     .detail("pnpm dev")
                     .present(self.0)
-                    .on_remove(|_, _| {}),
+                    .on_remove(|_, _, _| {}),
             )
         }
     }
@@ -493,4 +503,38 @@ fn a_standalone_chip_unfolds_where_it_is_drawn_and_says_its_detail(cx: &mut Test
     });
     advance(cx, PANEL * 2);
     assert_eq!(width("one", cx), None);
+}
+
+#[gpui_kit::test]
+fn the_marked_row_moves_its_fill_over_hover_and_a_long_menu_scrolls_to_it(cx: &mut TestAppContext) {
+    let (host, cx) = host(&[], false, None, cx);
+    host.update(cx, |host, cx| {
+        host.many = true;
+        cx.notify();
+    });
+    focus_field(&host, cx);
+    assert_eq!(pending_frames(cx), 0);
+    press("down", cx);
+    assert!(
+        pending_frames(cx) > 0,
+        "the mark's fill moves, it does not switch"
+    );
+    advance(cx, HOVER * 2);
+    assert_eq!(pending_frames(cx), 0, "it has moved within HOVER");
+
+    let menu = cx.update(|window, _| window.find("picker-menu").bounds());
+    assert!(
+        menu.size.height < px(300.),
+        "the menu stops growing: {menu:?}"
+    );
+    for _ in 0..24 {
+        press("down", cx);
+    }
+    advance(cx, HOVER * 2);
+    press("enter", cx);
+    assert_eq!(
+        chosen(&host, cx),
+        ["extra-19"],
+        "the keys went down the whole list, 26 items long, to its last"
+    );
 }
