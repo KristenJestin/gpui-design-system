@@ -98,7 +98,7 @@ const NOT_CONTROLS: &[(&str, &str, &str)] = &[
     ),
     (
         "src/toast.rs",
-        ".on_click(move |_, window, cx| {",
+        "Button::secondary(ElementId::Name(id.into()), action.label.clone()).on_click(",
         "a call on a `Button`, which sets its own hand while it can act",
     ),
     (
