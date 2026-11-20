@@ -216,6 +216,28 @@ The text the input holds keeps the label the token was put with. The field's own
 paste (a copy made before the relabel) keeps the look the field holds for the id, and only brings
 the look of an id the field does not know.
 
+## Chips that can be removed, and a picker of them
+
+`RemovableChip::new(id, label)` is a tag that can be taken away: its `.detail(..)` in the faint
+ink, a remove button (the kit's icon button, tooltip "Remove <label>") that calls
+`.on_remove(..)`. It unfolds sideways and fades in when it is first drawn, folds away when
+`.present(false)` (build it on every frame while it folds), and fades its hover; `.at_rest()`
+draws it whole from its first frame. It is not `Chip` (a read-only fact under a title) nor `Tag`.
+
+`ChipPicker::new(id, label, &input, options, chosen)` is a multi-select whose value is an ordered
+list of keys: the application keeps it and is told the new list by `.on_change(keys)`. `options`
+are `ChipOption::new(key, label).detail(..)`; `input` is an `InputState` the caller made with
+`follow_theme`, as for `SearchField`.
+
+- The chosen keys are chips in the order added, then a search field; above them the label, a
+  count once something is chosen, and "None" while nothing is.
+- The field opens a menu of what is not chosen yet, filtered by `fuzzy` as the user types, each
+  item with its detail. It opens below the field, above it when the window has no room, and over
+  the dialog it may be in. It scrolls past 272 px, and stays open after an add.
+- Keys: the arrows move the mark, Enter adds, Escape closes the menu (and nothing around it),
+  Backspace in an empty field removes the last chip.
+- `MenuItem::marked(bool)` is the row the keys are on: its fill fades over `HOVER`.
+
 ## A QR code
 
 `QrCode::new(id, text, label)` draws the QR code of `text` (a link, a pairing code): near-black
