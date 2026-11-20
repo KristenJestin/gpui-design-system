@@ -1,8 +1,9 @@
 //! Toasts: the result of an action the user took (saved, added, removed, started, failed), at the
 //! bottom right of the window. Each one is 360 px wide: an icon, one line and an optional second.
 //! It rises and fades in, and folds away with its gap. A success leaves after four seconds, held
-//! while the pointer is on it; a failure stays until it is dismissed. Several stack, the newest on
-//! top.
+//! while the pointer is on it; a failure stays until it is dismissed. A notice ([`Toast::notice`])
+//! is something told to the user, not a result: it stays eight seconds, can carry several buttons
+//! and a click on its lines, and is taken away with [`withdraw`]. Several stack, the newest on top.
 //!
 //! The shell owns the [`ToastStack`] and draws it last; any view says a result with [`toast`].
 //! A result is never a line appended under a form (a scan of the window's sources refuses it); a
@@ -32,7 +33,9 @@ use crate::typography::Type;
 
 /// How long a success stays.
 pub const STAYS: Duration = Duration::from_secs(4);
-/// How long a success stays once the pointer has left it.
+/// How long a notice stays: it says something to read and may ask for an answer.
+pub const NOTICE_STAYS: Duration = Duration::from_secs(8);
+/// How long a success or a notice stays once the pointer has left it.
 pub const STAYS_AFTER_HOVER: Duration = Duration::from_secs(2);
 
 const WIDTH: f32 = 360.;
@@ -43,9 +46,24 @@ const GAP: f32 = 8.;
 pub enum ToastKind {
     Success,
     Failure,
+    /// Something told to the user, not the result of what they did: a notification. It leaves
+    /// by itself like a success, after [`NOTICE_STAYS`].
+    Notice,
 }
 
-/// One result: its kind, its line, an optional second line and an optional action.
+impl ToastKind {
+    /// How long the toast stays: none for a failure, which stays until it is dismissed.
+    fn stays(self) -> Option<Duration> {
+        match self {
+            ToastKind::Success => Some(STAYS),
+            ToastKind::Notice => Some(NOTICE_STAYS),
+            ToastKind::Failure => None,
+        }
+    }
+}
+
+/// One result: its kind, its line, an optional second line, its buttons and an optional click on
+/// its lines.
 #[derive(Clone)]
 pub struct Toast {
     kind: ToastKind,
@@ -54,7 +72,8 @@ pub struct Toast {
     /// its length.
     quoted: Option<SharedString>,
     detail: Option<SharedString>,
-    action: Option<Action>,
+    actions: Vec<Action>,
+    open: Option<Run>,
     key: Option<SharedString>,
 }
 
@@ -73,7 +92,11 @@ impl std::fmt::Debug for Toast {
             .field("kind", &self.kind)
             .field("title", &self.title)
             .field("detail", &self.detail)
-            .field("action", &self.action.as_ref().map(|a| &a.label))
+            .field(
+                "actions",
+                &self.actions.iter().map(|a| &a.label).collect::<Vec<_>>(),
+            )
+            .field("open", &self.open.is_some())
             .finish()
     }
 }
@@ -84,8 +107,14 @@ impl PartialEq for Toast {
             && self.title == other.title
             && self.detail == other.detail
             && self.key == other.key
-            && match (&self.action, &other.action) {
-                (Some(a), Some(b)) => a.label == b.label && Rc::ptr_eq(&a.run, &b.run),
+            && self.actions.len() == other.actions.len()
+            && self
+                .actions
+                .iter()
+                .zip(&other.actions)
+                .all(|(a, b)| a.label == b.label && Rc::ptr_eq(&a.run, &b.run))
+            && match (&self.open, &other.open) {
+                (Some(a), Some(b)) => Rc::ptr_eq(a, b),
                 (None, None) => true,
                 _ => false,
             }
@@ -102,8 +131,20 @@ impl Toast {
             title: title.into(),
             quoted: None,
             detail: None,
-            action: None,
+            actions: Vec::new(),
+            open: None,
             key: None,
+        }
+    }
+
+    /// Something the user is told, not the result of what they did (something waits for their answer): a
+    /// bell where a success has its tick. It leaves after [`NOTICE_STAYS`], held while the
+    /// pointer is on it; [`action`](Self::action) buttons and [`on_open`](Self::on_open) let it
+    /// be answered from where it is.
+    pub fn notice(title: impl Into<SharedString>) -> Self {
+        Self {
+            kind: ToastKind::Notice,
+            ..Self::success(title)
         }
     }
 
@@ -131,16 +172,24 @@ impl Toast {
         self
     }
 
-    /// A button under the lines, `toast-<n>-action`: its click runs `run`, then the toast leaves.
+    /// A button under the lines: its click runs `run`, then the toast leaves. Called again, it
+    /// adds a button beside the first. The first is `toast-<n>-action`, the next
+    /// `toast-<n>-action-2`, `toast-<n>-action-3`.
     pub fn action(
         mut self,
         label: impl Into<SharedString>,
         run: impl Fn(&mut Window, &mut App) + 'static,
     ) -> Self {
-        self.action = Some(Action {
+        self.actions.push(Action {
             label: label.into(),
             run: Rc::new(run),
         });
+        self
+    }
+
+    /// A click on the lines of the toast, `toast-<n>-open`, runs `run`, then the toast leaves.
+    pub fn on_open(mut self, run: impl Fn(&mut Window, &mut App) + 'static) -> Self {
+        self.open = Some(Rc::new(run));
         self
     }
 
@@ -180,6 +229,26 @@ pub fn toast(toast: Toast, cx: &mut App) {
         return;
     };
     stack.update(cx, |stack, cx| stack.push(toast, cx)).ok();
+}
+
+/// Takes the toast with this key off the screen: it folds away with its gap. Nothing when none
+/// is shown (it left already).
+pub fn withdraw(key: &str, cx: &mut App) {
+    let Some(stack) = cx.try_global::<Stack>().map(|s| s.0.clone()) else {
+        return;
+    };
+    stack
+        .update(cx, |stack, cx| {
+            if let Some(number) = stack
+                .live
+                .iter()
+                .find(|live| live.toast.key.as_deref() == Some(key))
+                .map(|live| live.number)
+            {
+                stack.dismiss(number, cx);
+            }
+        })
+        .ok();
 }
 
 /// Whether a toast with this key is on screen.
@@ -230,8 +299,10 @@ impl ToastStack {
                 .position(|live| live.toast.key.as_ref() == Some(&key))
         {
             let number = self.live[at].number;
-            let leaving =
-                (toast.kind == ToastKind::Success).then(|| self.leave_after(number, STAYS, cx));
+            let leaving = toast
+                .kind
+                .stays()
+                .map(|stays| self.leave_after(number, stays, cx));
             let live = &mut self.live[at];
             live.toast = toast;
             live.leaving = leaving;
@@ -240,8 +311,10 @@ impl ToastStack {
         }
         self.next += 1;
         let number = self.next;
-        let leaving =
-            (toast.kind == ToastKind::Success).then(|| self.leave_after(number, STAYS, cx));
+        let leaving = toast
+            .kind
+            .stays()
+            .map(|stays| self.leave_after(number, stays, cx));
         self.live.push(Live {
             number,
             toast,
@@ -279,7 +352,7 @@ impl ToastStack {
                 return;
             };
             live.hovered = hovered;
-            live.toast.kind == ToastKind::Success
+            live.toast.kind.stays().is_some()
         };
         if !restart {
             return;
@@ -299,10 +372,10 @@ impl ToastStack {
     ) -> impl IntoElement {
         let p = palette(cx);
         let failed = toast.kind == ToastKind::Failure;
-        let (glyph, ink, wash) = if failed {
-            (Icon::Close, p.fail, p.fail_bg)
-        } else {
-            (Icon::Check, p.ok, p.ok_bg)
+        let (glyph, ink, wash) = match toast.kind {
+            ToastKind::Failure => (Icon::Close, p.fail, p.fail_bg),
+            ToastKind::Success => (Icon::Check, p.ok, p.ok_bg),
+            ToastKind::Notice => (Icon::Bell, p.text, p.hover),
         };
         let mark = div()
             .mt(px(2.))
@@ -362,18 +435,26 @@ impl ToastStack {
                     .child(detail)
                     .test_support()
             }))
-            .children(toast.action.clone().map(|action| {
-                let this = cx.entity().downgrade();
-                div().mt(space::SM).flex().child(
-                    Button::secondary(
-                        ElementId::Name(format!("toast-{number}-action").into()),
-                        action.label,
+            .children((!toast.actions.is_empty()).then(|| {
+                let buttons = toast.actions.iter().enumerate().map(|(at, action)| {
+                    let (this, run) = (cx.entity().downgrade(), action.run.clone());
+                    let id = match at {
+                        0 => format!("toast-{number}-action"),
+                        at => format!("toast-{number}-action-{}", at + 1),
+                    };
+                    Button::secondary(ElementId::Name(id.into()), action.label.clone()).on_click(
+                        move |_, window, cx| {
+                            run(window, cx);
+                            this.update(cx, |this, cx| this.dismiss(number, cx)).ok();
+                        },
                     )
-                    .on_click(move |_, window, cx| {
-                        (action.run)(window, cx);
-                        this.update(cx, |this, cx| this.dismiss(number, cx)).ok();
-                    }),
-                )
+                });
+                div()
+                    .mt(space::SM)
+                    .flex()
+                    .flex_wrap()
+                    .gap(space::SM)
+                    .children(buttons)
             }));
         let dismiss = div()
             .id(ElementId::Name(format!("toast-{number}-dismiss").into()))
@@ -426,8 +507,38 @@ impl ToastStack {
             .on_hover(
                 cx.listener(move |this, hovered: &bool, _, cx| this.hovered(number, *hovered, cx)),
             )
-            .child(mark)
-            .child(text)
+            .child(match toast.open.clone() {
+                Some(run) => {
+                    let this = cx.entity().downgrade();
+                    let body = div()
+                        .id(ElementId::Name(format!("toast-{number}-open").into()))
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .items_start()
+                        .gap(px(10.))
+                        .cursor_pointer()
+                        .on_click(move |_, window, cx| {
+                            run(window, cx);
+                            this.update(cx, |this, cx| this.dismiss(number, cx)).ok();
+                        })
+                        .child(mark)
+                        .child(text);
+                    hoverable(body, move |d, t| {
+                        d.surface(Surface::new(px(8.)).fill(p.hover.opacity(t * 0.5)))
+                    })
+                    .into_any_element()
+                }
+                None => div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .items_start()
+                    .gap(px(10.))
+                    .child(mark)
+                    .child(text)
+                    .into_any_element(),
+            })
             .child(dismiss)
             .test_support()
     }

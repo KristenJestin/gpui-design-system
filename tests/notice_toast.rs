@@ -12,7 +12,7 @@ use common::{advance, init, pending_frames};
 use gpui_design_system::motion::{ENTER, PANEL};
 use gpui_design_system::toast::{NOTICE_STAYS, withdraw};
 use gpui_design_system::{Toast, ToastStack, toast};
-use gpui_kit::test::{TestQueryExt as _, TestWindowExt};
+use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
     AppContext as _, Context, Entity, IntoElement, ParentElement, Pixels, Render, Styled,
     TestAppContext, VisualTestContext, Window, div, point, px, size,
@@ -114,14 +114,20 @@ fn a_notice_stays_while_it_is_hovered_and_leaves_after_its_time(cx: &mut TestApp
     cx.update(|_, cx| toast(Toast::notice("Reported").detail("Done"), cx));
     advance(cx, ENTER * 2);
     advance(cx, Duration::from_secs(6));
-    assert!(shown("toast-1", cx), "it stays longer than a success's four seconds");
+    assert!(
+        shown("toast-1", cx),
+        "it stays longer than a success's four seconds"
+    );
     cx.update(|window, cx| window.hover("toast-1", cx));
     advance(cx, NOTICE_STAYS * 2);
     assert!(shown("toast-1", cx), "it waits while the pointer is on it");
     cx.simulate_mouse_move(point(px(10.), px(10.)), None, Default::default());
     advance(cx, Duration::from_secs(2));
     advance(cx, PANEL * 2);
-    assert!(!shown("toast-1", cx), "and leaves once the pointer has left");
+    assert!(
+        !shown("toast-1", cx),
+        "and leaves once the pointer has left"
+    );
     assert_eq!(pending_frames(cx), 0);
 }
 
@@ -129,8 +135,14 @@ fn a_notice_stays_while_it_is_hovered_and_leaves_after_its_time(cx: &mut TestApp
 fn a_notice_withdrawn_by_its_key_folds_away_and_the_rest_waits(cx: &mut TestAppContext) {
     let cx = toasts(cx);
     cx.update(|_, cx| {
-        toast(Toast::notice("Request #3 waits for you").keyed("notification-3"), cx);
-        toast(Toast::notice("Request #4 waits for you").keyed("notification-4"), cx);
+        toast(
+            Toast::notice("Request #3 waits for you").keyed("notification-3"),
+            cx,
+        );
+        toast(
+            Toast::notice("Request #4 waits for you").keyed("notification-4"),
+            cx,
+        );
     });
     advance(cx, ENTER * 2);
     assert!(shown("toast-1", cx) && shown("toast-2", cx));
