@@ -18,7 +18,7 @@ use gpui_kit::{
 
 use crate::color::mix;
 use crate::icons::{Icon, icon};
-use crate::interact::{dismiss_on_navigate, hoverable, open_holding_overlay};
+use crate::interact::{dismiss_on_navigate, fade, hoverable, open_holding_overlay};
 use crate::layer;
 use crate::look::{Shaped as _, Surface, look};
 use crate::motion::{ENTER, HOVER, Motion, RISE};
@@ -338,6 +338,7 @@ pub struct MenuItem {
     detail: Option<SharedString>,
     slot: bool,
     selected: bool,
+    marked: bool,
     danger: bool,
     on_click: Option<Handler>,
 }
@@ -352,6 +353,7 @@ impl MenuItem {
             detail: None,
             slot: false,
             selected: false,
+            marked: false,
             danger: false,
             on_click: None,
         }
@@ -392,6 +394,13 @@ impl MenuItem {
         self
     }
 
+    /// The entry the keys are on: its fill moves in over [`HOVER`] as the pointer's does, and
+    /// moves out when the mark goes to another one.
+    pub fn marked(mut self, marked: bool) -> Self {
+        self.marked = marked;
+        self
+    }
+
     pub fn on_click(mut self, f: impl Fn(&mut Window, &mut App) + 'static) -> Self {
         self.on_click = Some(Rc::new(f));
         self
@@ -399,7 +408,7 @@ impl MenuItem {
 }
 
 impl RenderOnce for MenuItem {
-    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = palette(cx);
         let active = self.on_click.is_some();
         let (ink, hover_ink, hover_bg) = match (active, self.danger) {
@@ -408,6 +417,13 @@ impl RenderOnce for MenuItem {
             (true, false) => (p.mute, p.text, p.hover),
         };
         let selected = self.selected;
+        let marked = fade(
+            ElementId::NamedChild(Arc::new(self.id.clone()), "marked".into()),
+            self.marked && active,
+            HOVER,
+            window,
+            cx,
+        );
         let label = self.label;
         let label_id = ElementId::Name(format!("{}-label", id_text(&self.id)).into());
         let detail_id = ElementId::Name(format!("{}-detail", id_text(&self.id)).into());
@@ -487,7 +503,7 @@ impl RenderOnce for MenuItem {
                     .on_click(move |_, window, cx| f(window, cx))
             });
         hoverable(item, move |d, t| {
-            let t = if selected { 1.0 } else { t };
+            let t = if selected { 1.0 } else { t.max(marked) };
             let fill = if selected { p.sel } else { hover_bg.opacity(t) };
             d.text_color(mix(ink, hover_ink, t))
                 .surface(Surface::new(px(6.)).fill(fill))

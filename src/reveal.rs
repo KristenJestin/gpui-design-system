@@ -178,6 +178,8 @@ impl RenderOnce for Enter {
 pub(crate) struct Shown {
     pub motion: Motion,
     pub height: Rc<Cell<Pixels>>,
+    /// Its own width, for a block that unfolds sideways (a chip in a row).
+    pub width: Rc<Cell<Pixels>>,
     /// The last line a [`PresenceOf`] had, drawn again while it folds away.
     pub last: SharedString,
     /// A row's slide to its new place and the move it answers: see [`Item`](crate::Item).
@@ -190,6 +192,7 @@ impl Shown {
         Self {
             motion,
             height: Rc::new(Cell::new(px(0.))),
+            width: Rc::new(Cell::new(px(0.))),
             last: SharedString::default(),
             slide: Motion::settled(0.0),
             moved: 0,
@@ -202,6 +205,7 @@ pub(crate) struct Driven {
     pub t: f32,
     pub running: bool,
     pub height: Rc<Cell<Pixels>>,
+    pub width: Rc<Cell<Pixels>>,
 }
 
 /// Moves a [`Shown`] toward `open` and says where it is now; asks for the next frame while it
@@ -215,11 +219,11 @@ pub(crate) fn drive(
     let now = cx.background_executor().now();
     let reduce = cx.reduce_motion();
     let target = if open { 1.0 } else { 0.0 };
-    let (motion, height) = state.update(cx, |shown, _| {
+    let (motion, height, width) = state.update(cx, |shown, _| {
         if shown.motion.target() != target {
             shown.motion.animate(target, PANEL, now, reduce);
         }
-        (shown.motion, shown.height.clone())
+        (shown.motion, shown.height.clone(), shown.width.clone())
     });
     let running = motion.is_running(now);
     if running {
@@ -231,6 +235,7 @@ pub(crate) fn drive(
         t: motion.value(now),
         running,
         height,
+        width,
     }
 }
 
@@ -255,7 +260,9 @@ pub(crate) fn shown_frame(
     offset: f32,
     content: AnyElement,
 ) -> AnyElement {
-    let Driven { t, running, height } = at;
+    let Driven {
+        t, running, height, ..
+    } = at;
     let (t, running) = (*t, *running);
     if !open && !running {
         return div().hidden().into_any_element();

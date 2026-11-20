@@ -52,6 +52,16 @@ const NOT_CONTROLS: &[(&str, &str, &str)] = &[
         "the tooltip state's rest on press: the element it serves sets its own hand",
     ),
     (
+        "src/chip_picker.rs",
+        "button.on_click(move |event, window, cx| on_remove(event, window, cx))",
+        "a call on a `Button`, which sets its own hand while it can act",
+    ),
+    (
+        "src/chip_picker.rs",
+        ".on_click(move |window, cx| {",
+        "a call on a `MenuItem`, which sets its own hand while it can act",
+    ),
+    (
         "src/confirm.rs",
         ".on_click(move |_, window, cx| {",
         "a call on a `Button`, which sets its own hand while it can act",

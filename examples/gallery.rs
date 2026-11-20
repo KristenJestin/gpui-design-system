@@ -2,38 +2,44 @@
 //! pointer to be seen, so the page can be captured in a headless compositor.
 //!
 //! ```text
-//! cargo run -p gpui-design-system --example gallery [-- --os-release <path>] [--drawer] [--pixel]
+//! cargo run -p gpui-design-system --example gallery [-- --os-release <path>] [--drawer] [--pixel] [--menu]
 //! ```
 //!
 //! The theme is chosen as an application's is: the desktop's when the kit has a source for this
 //! desktop and its theme can be used (`--os-release` points at another file than
 //! `/etc/os-release`), the kit's own look otherwise. `--drawer` shows the right drawer open.
 //! `--pixel` draws the kit in a pixel look: notched corners, a 2 px border, a hard shadow, a
-//! 4 px grid, the controls' words in the mono face.
+//! 4 px grid, the controls' words in the mono face. `--menu` puts the caret in the chip picker's
+//! field, which opens its menu.
 
 use std::path::PathBuf;
 
 use gpui_design_system::look::Role;
 use gpui_design_system::{
-    Badge, Button, Card, Corners, Drawer, Fold, Fonts, Icon, Icons, Identity, ListRow, Look, Piece,
-    PulsingLabel, QrCode, Shadow, Side, Sizes, Token, TokenField, TokenLook, TokenText, TreeRow,
-    Type, enter, icon, meta, palette, section_label, tree_children, typography,
+    Badge, Button, Card, ChipOption, ChipPicker, Corners, Drawer, Fold, Fonts, Icon, Icons,
+    Identity, ListRow, Look, Piece, PulsingLabel, QrCode, RemovableChip, Shadow, Side, Sizes,
+    Token, TokenField, TokenLook, TokenText, TreeRow, Type, enter, follow_theme, icon, meta,
+    palette, section_label, tree_children, typography,
 };
+use gpui_kit::base::input::InputState;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, AppContext as _, Bounds, Context, Entity, FontWeight, Hsla, IntoElement,
-    ParentElement, Render, Styled, Window, WindowBounds, WindowOptions, div, px, size,
+    AnyElement, App, AppContext as _, Bounds, Context, Entity, Focusable as _, FontWeight, Hsla,
+    IntoElement, ParentElement, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
+    div, px, size,
 };
 
 fn main() {
     let mut os_release = None;
     let mut drawer = false;
+    let mut menu = false;
     let mut look = Look::default();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--os-release" => os_release = Some(PathBuf::from(args.next().expect("a path"))),
             "--drawer" => drawer = true,
+            "--menu" => menu = true,
             "--pixel" => look = pixel(),
             other => panic!("unknown argument {other}"),
         }
@@ -46,7 +52,7 @@ fn main() {
             ..Default::default()
         };
         gpui_kit::open_window(options, cx, |window, cx| {
-            cx.new(|cx| Gallery::new(drawer, window, cx))
+            cx.new(|cx| Gallery::new(drawer, menu, window, cx))
         })
         .expect("a window");
     });
@@ -107,7 +113,18 @@ struct Gallery {
     shut_fold: Entity<Fold>,
     drawer: Entity<Drawer>,
     draft: Entity<TokenField>,
+    picker_input: Entity<InputState>,
+    picked: Vec<SharedString>,
 }
+
+/// What the chip picker offers: a key, a label and the line under it.
+const SERVICES: [(&str, &str); 5] = [
+    ("database", "postgres -D data/pg"),
+    ("cache", "redis-server --port 6380"),
+    ("queue", "queued --workers 4"),
+    ("mailbox", "mailbox --smtp 127.0.0.1:1025"),
+    ("storage", "storage serve data/files"),
+];
 
 /// A text with two pictures and a command among its words, as a composer holds one.
 fn draft() -> Vec<Piece> {
@@ -179,7 +196,7 @@ impl Render for DrawerContent {
 }
 
 impl Gallery {
-    fn new(drawer_open: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(drawer_open: bool, menu: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let member = |name, model, doing, mark, state| Member {
             name,
             model,
@@ -232,8 +249,19 @@ impl Gallery {
             field.set_value(draft(), window, cx).expect("a valid draft");
             field
         });
+        let picker_input = cx.new(|cx| {
+            let mut input = InputState::new(window, cx);
+            follow_theme(&mut input, cx);
+            input
+        });
+        if menu {
+            let focus = picker_input.focus_handle(cx);
+            window.focus(&focus, cx);
+        }
         Self {
             members,
+            picker_input,
+            picked: vec!["database".into(), "cache".into()],
             thinking,
             open_fold,
             shut_fold,
@@ -552,6 +580,37 @@ impl Render for Gallery {
             )
             .child(TokenText::new("sent", draft()).on_token_click(|_, _, _| {}));
 
+        let this = cx.entity().downgrade();
+        let chips = panel("Chips", cx)
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .child(RemovableChip::new("g-chip-a", "api").at_rest())
+                    .child(
+                        RemovableChip::new("g-chip-b", "worker")
+                            .detail("cargo run -p worker")
+                            .at_rest(),
+                    ),
+            )
+            .child(
+                ChipPicker::new(
+                    "g-picker",
+                    "Needs",
+                    &self.picker_input,
+                    SERVICES.map(|(key, line)| ChipOption::new(key, key).detail(line)),
+                    self.picked.clone(),
+                )
+                .placeholder("Add a need…")
+                .on_change(move |keys, _, cx| {
+                    this.update(cx, |gallery, cx| {
+                        gallery.picked = keys;
+                        cx.notify();
+                    })
+                    .ok();
+                }),
+            );
+
         let qr_code = panel("QR code", cx).child(
             QrCode::new(
                 "g-qr",
@@ -582,6 +641,14 @@ impl Render for Gallery {
                             .child(type_sample)
                             .child(inline_tokens)
                             .child(qr_code),
+                    )
+                    .child(
+                        div()
+                            .w(px(300.))
+                            .flex()
+                            .flex_col()
+                            .gap(px(18.))
+                            .child(chips),
                     )
                     .child(
                         div()

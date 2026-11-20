@@ -31,6 +31,11 @@ impl Placement {
     pub fn is_gone(&self) -> bool {
         self.gone
     }
+
+    /// A row of the first `sync` of a list that opens at rest: it is drawn settled.
+    pub fn is_rest(&self) -> bool {
+        self.rest
+    }
 }
 
 struct Slot<T> {
