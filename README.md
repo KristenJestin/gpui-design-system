@@ -238,6 +238,19 @@ are `ChipOption::new(key, label).detail(..)`; `input` is an `InputState` the cal
   Backspace in an empty field removes the last chip.
 - `MenuItem::marked(bool)` is the row the keys are on: its fill fades over `HOVER`.
 
+## Swatches, and a menu entry that waits
+
+`Swatches::new(id, label).swatch(Swatch::new(key, title, colour))…` is a few colours to choose
+among (a device's colour, a label's): round buttons `<id>-<key>` named by their title, the chosen
+one ringed in the ink colour, the ring moving over `PANEL` as the choice changes and fading in over
+`HOVER` under the pointer. `.chosen(index)`, `.on_choose(f)` (the index clicked, never the chosen
+one). Put it in a `Field`, which draws its label.
+
+`Menu::entry(..).disabled(reason)` makes the entry before it inert while something it needs is
+missing: its ink fades to the faint one (and back when it is enabled again), it takes no hover and
+no click, and its second line says `reason` in place of a detail. A "⋯" menu that offers what
+cannot be done now is clearer than one that hides it.
+
 ## A QR code
 
 `QrCode::new(id, text, label)` draws the QR code of `text` (a link, a pairing code): near-black

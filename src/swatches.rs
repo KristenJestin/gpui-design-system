@@ -111,6 +111,7 @@ impl RenderOnce for Swatches {
                     .child(div().size_full().rounded_full().bg(colour))
             });
             tipped_swatch(named("-tip"), button, swatch.title.clone(), window, cx)
+                .into_any_element()
         });
         div()
             .id(self.id)
