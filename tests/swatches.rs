@@ -11,8 +11,8 @@ use gpui_design_system::motion::PANEL;
 use gpui_design_system::{Swatch, Swatches};
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
-    AnyElement, AppContext as _, Context, Entity, IntoElement, ParentElement, Render, Styled,
-    TestAppContext, VisualTestContext, Window, div, hsla, px, size,
+    AnyElement, Context, Entity, IntoElement, ParentElement, Render, Styled, TestAppContext,
+    VisualTestContext, Window, div, hsla, px, size,
 };
 
 type Draw = Box<dyn Fn(&mut Window, &mut Context<Host>) -> AnyElement>;
