@@ -18,7 +18,7 @@ use gpui_kit::{
     WeakEntity, Window, anchored, deferred, div, point, px,
 };
 
-use crate::button::Button;
+use crate::button::{Button, ButtonKind};
 use crate::color::mix;
 use crate::cut::quoted;
 use crate::icons::{Icon, icon};
@@ -83,6 +83,7 @@ type Run = Rc<dyn Fn(&mut Window, &mut App)>;
 #[derive(Clone)]
 struct Action {
     label: SharedString,
+    kind: ButtonKind,
     run: Run,
 }
 
@@ -112,7 +113,7 @@ impl PartialEq for Toast {
                 .actions
                 .iter()
                 .zip(&other.actions)
-                .all(|(a, b)| a.label == b.label && Rc::ptr_eq(&a.run, &b.run))
+                .all(|(a, b)| a.label == b.label && a.kind == b.kind && Rc::ptr_eq(&a.run, &b.run))
             && match (&self.open, &other.open) {
                 (Some(a), Some(b)) => Rc::ptr_eq(a, b),
                 (None, None) => true,
@@ -176,15 +177,48 @@ impl Toast {
     /// adds a button beside the first. The first is `toast-<n>-action`, the next
     /// `toast-<n>-action-2`, `toast-<n>-action-3`.
     pub fn action(
+        self,
+        label: impl Into<SharedString>,
+        run: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.button(ButtonKind::Secondary, label, run)
+    }
+
+    /// As [`Toast::action`], a primary button: the one main answer of a notice (Allow).
+    pub fn primary_action(
+        self,
+        label: impl Into<SharedString>,
+        run: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.button(ButtonKind::Primary, label, run)
+    }
+
+    /// As [`Toast::action`], a quiet button: the refusal beside the main answer (Deny).
+    pub fn quiet_action(
+        self,
+        label: impl Into<SharedString>,
+        run: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.button(ButtonKind::Quiet, label, run)
+    }
+
+    fn button(
         mut self,
+        kind: ButtonKind,
         label: impl Into<SharedString>,
         run: impl Fn(&mut Window, &mut App) + 'static,
     ) -> Self {
         self.actions.push(Action {
             label: label.into(),
+            kind,
             run: Rc::new(run),
         });
         self
+    }
+
+    /// The buttons of the toast, in order: their label and their kind.
+    pub fn buttons(&self) -> impl Iterator<Item = (&str, ButtonKind)> {
+        self.actions.iter().map(|a| (a.label.as_ref(), a.kind))
     }
 
     /// A click on the lines of the toast, `toast-<n>-open`, runs `run`, then the toast leaves.
@@ -442,12 +476,16 @@ impl ToastStack {
                         0 => format!("toast-{number}-action"),
                         at => format!("toast-{number}-action-{}", at + 1),
                     };
-                    Button::secondary(ElementId::Name(id.into()), action.label.clone()).on_click(
-                        move |_, window, cx| {
-                            run(window, cx);
-                            this.update(cx, |this, cx| this.dismiss(number, cx)).ok();
-                        },
-                    )
+                    let id = ElementId::Name(id.into());
+                    let button = match action.kind {
+                        ButtonKind::Primary => Button::primary(id, action.label.clone()),
+                        ButtonKind::Quiet => Button::quiet(id, action.label.clone()),
+                        _ => Button::secondary(id, action.label.clone()),
+                    };
+                    button.on_click(move |_, window, cx| {
+                        run(window, cx);
+                        this.update(cx, |this, cx| this.dismiss(number, cx)).ok();
+                    })
                 });
                 div()
                     .mt(space::SM)
