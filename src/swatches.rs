@@ -15,6 +15,7 @@ use gpui_kit::{
 use crate::button::tipped;
 use crate::color::mix;
 use crate::interact::selectable;
+use crate::look::{Radius, Shaped as _, Surface};
 use crate::theme::palette;
 
 type OnChoose = Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>;
@@ -95,9 +96,7 @@ impl RenderOnce for Swatches {
                 .aria_selected(chosen)
                 .flex_none()
                 .size(px(28.))
-                .p(px(3.))
-                .rounded_full()
-                .border_2();
+                .p(px(4.));
             if !chosen && let Some(on_choose) = self.on_choose.clone() {
                 button = button
                     .cursor_pointer()
@@ -107,8 +106,8 @@ impl RenderOnce for Swatches {
                 // The ring is the ink's, half way under the pointer, whole once chosen.
                 let ring = mix(Hsla::transparent_black(), p.text, chosen.max(hover * 0.5));
                 button
-                    .border_color(ring)
-                    .child(div().size_full().rounded_full().bg(colour))
+                    .surface(Surface::full().line(ring))
+                    .child(div().size_full().corners(Radius::Full).bg(colour))
             });
             tipped_swatch(named("-tip"), button, swatch.title.clone(), window, cx)
                 .into_any_element()
