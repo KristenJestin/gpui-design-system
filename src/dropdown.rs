@@ -340,6 +340,7 @@ pub struct MenuItem {
     selected: bool,
     marked: bool,
     danger: bool,
+    disabled: Option<SharedString>,
     on_click: Option<Handler>,
 }
 
@@ -355,6 +356,7 @@ impl MenuItem {
             selected: false,
             marked: false,
             danger: false,
+            disabled: None,
             on_click: None,
         }
     }
@@ -405,16 +407,42 @@ impl MenuItem {
         self.on_click = Some(Rc::new(f));
         self
     }
+
+    /// Cannot be picked now, and says why in its second line: it takes no hover and no click, and
+    /// its ink fades to the faint one over [`HOVER`] when it is disabled after being enabled.
+    pub fn disabled(mut self, reason: impl Into<SharedString>) -> Self {
+        self.disabled = Some(reason.into());
+        self.on_click = None;
+        self
+    }
 }
 
 impl RenderOnce for MenuItem {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = palette(cx);
         let active = self.on_click.is_some();
-        let (ink, hover_ink, hover_bg) = match (active, self.danger) {
+        // An entry that cannot be picked now keeps the ink it has when it can, and fades to the
+        // faint one as it is disabled, and back.
+        let enabled = fade(
+            ElementId::NamedChild(Arc::new(self.id.clone()), "enabled".into()),
+            self.disabled.is_none(),
+            HOVER,
+            window,
+            cx,
+        );
+        let (ink, hover_ink, hover_bg) = match (active || self.disabled.is_some(), self.danger) {
             (false, _) => (p.faint, p.faint, p.hover.opacity(0.)),
             (true, true) => (p.fail, p.fail, p.fail_bg),
             (true, false) => (p.mute, p.text, p.hover),
+        };
+        let (ink, hover_ink, hover_bg) = if self.disabled.is_some() || enabled < 1.0 {
+            (
+                mix(p.faint, ink, enabled),
+                mix(p.faint, hover_ink, enabled),
+                hover_bg.opacity(if self.disabled.is_some() { 0. } else { enabled }),
+            )
+        } else {
+            (ink, hover_ink, hover_bg)
         };
         let selected = self.selected;
         let marked = fade(
@@ -464,7 +492,7 @@ impl RenderOnce for MenuItem {
                     .child(label)
                     .test_support(),
             )
-            .when_some(self.detail, |d, detail| {
+            .when_some(self.disabled.clone().or(self.detail), |d, detail| {
                 d.child(
                     div()
                         .id(detail_id)
