@@ -28,11 +28,11 @@ impl Render for Counting {
     }
 }
 
-fn counting(
+fn counting<'a>(
     count: &'static str,
     reduce: bool,
-    cx: &mut TestAppContext,
-) -> (gpui_kit::Entity<Counting>, &mut VisualTestContext) {
+    cx: &'a mut TestAppContext,
+) -> (gpui_kit::Entity<Counting>, &'a mut VisualTestContext) {
     init(cx);
     cx.update(|cx| cx.set_reduce_motion(reduce));
     let (view, cx) = cx.add_window_view(move |_, _| Counting {
