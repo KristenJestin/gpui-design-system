@@ -11,7 +11,7 @@ use std::time::Duration;
 use common::{advance, init, pending_frames};
 use gpui_design_system::motion::{ENTER, PANEL};
 use gpui_design_system::toast::{NOTICE_STAYS, withdraw};
-use gpui_design_system::{Toast, ToastStack, toast};
+use gpui_design_system::{ButtonKind, Toast, ToastStack, toast};
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
     AppContext as _, Context, Entity, IntoElement, ParentElement, Pixels, Render, Styled,
@@ -51,20 +51,18 @@ fn shown(id: &str, cx: &mut VisualTestContext) -> bool {
     })
 }
 
+fn request(allow: Rc<Cell<u32>>, deny: Rc<Cell<u32>>) -> Toast {
+    Toast::notice("Request #3 waits for you")
+        .detail("Read .env")
+        .primary_action("Allow", move |_, _| allow.set(allow.get() + 1))
+        .quiet_action("Deny", move |_, _| deny.set(deny.get() + 1))
+}
+
 #[gpui_kit::test]
 fn a_notice_carries_two_buttons_and_each_runs_then_the_notice_leaves(cx: &mut TestAppContext) {
     let cx = toasts(cx);
     let (allowed, denied) = (Rc::new(Cell::new(0)), Rc::new(Cell::new(0)));
-    let (allow, deny) = (allowed.clone(), denied.clone());
-    cx.update(|_, cx| {
-        toast(
-            Toast::notice("Request #3 waits for you")
-                .detail("Read .env")
-                .action("Allow", move |_, _| allow.set(allow.get() + 1))
-                .action("Deny", move |_, _| deny.set(deny.get() + 1)),
-            cx,
-        )
-    });
+    cx.update(|_, cx| toast(request(allowed.clone(), denied.clone()), cx));
     advance(cx, ENTER * 2);
     let (card, first, second) = (
         bounds("toast-1", cx),
@@ -79,11 +77,32 @@ fn a_notice_carries_two_buttons_and_each_runs_then_the_notice_leaves(cx: &mut Te
     }
     assert!(first.right() <= second.left(), "side by side, in order");
     assert_eq!((allowed.get(), denied.get()), (0, 0), "nothing runs alone");
-    cx.update(|window, cx| window.click("toast-1-action-2", cx));
-    assert_eq!((allowed.get(), denied.get()), (0, 1), "Deny ran, only it");
+    cx.update(|window, cx| window.click("toast-1-action", cx));
+    assert_eq!((allowed.get(), denied.get()), (1, 0), "Allow ran, only it");
     advance(cx, PANEL * 2);
     assert!(!shown("toast-1", cx), "the notice leaves once answered");
+
+    cx.update(|_, cx| toast(request(allowed.clone(), denied.clone()), cx));
+    advance(cx, ENTER * 2);
+    cx.update(|window, cx| window.click("toast-2-action-2", cx));
+    assert_eq!((allowed.get(), denied.get()), (1, 1), "Deny ran, only it");
+    advance(cx, PANEL * 2);
+    assert!(!shown("toast-2", cx), "the notice leaves once answered");
     assert_eq!(pending_frames(cx), 0);
+}
+
+#[test]
+fn a_notice_offers_its_buttons_in_the_kind_it_names() {
+    let toast = request(Rc::default(), Rc::default()).action("Later", |_, _| {});
+    assert_eq!(
+        toast.buttons().collect::<Vec<_>>(),
+        [
+            ("Allow", ButtonKind::Primary),
+            ("Deny", ButtonKind::Quiet),
+            ("Later", ButtonKind::Secondary),
+        ],
+        "the one main answer is primary, the refusal quiet, a plain action secondary"
+    );
 }
 
 #[gpui_kit::test]
