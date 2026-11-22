@@ -22,6 +22,7 @@ use crate::interact::{dismiss_on_navigate, fade, hoverable, open_holding_overlay
 use crate::layer;
 use crate::look::{Shaped as _, Surface, look};
 use crate::motion::{ENTER, HOVER, Motion, RISE};
+use crate::reveal::changed;
 use crate::theme::palette;
 use crate::typography::Type;
 
@@ -140,6 +141,10 @@ impl RenderOnce for Dropdown {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = palette(cx);
         let toggle = self.on_toggle.clone();
+        // A label that changes fades back in over HOVER; `<id>-label` says how far for the tests.
+        let label_id = ElementId::Name(format!("{}-label", id_text(&self.id)).into());
+        let said = changed(&label_id, &self.label, window, cx);
+        crate::seen::note(&label_id, said);
         // The words go in after the fill, which the hover paints.
         let content: Vec<AnyElement> = self
             .leading
@@ -151,7 +156,10 @@ impl RenderOnce for Dropdown {
             })
             .into_iter()
             .chain([
-                self.label.into_any_element(),
+                div()
+                    .opacity(said)
+                    .child(self.label.clone())
+                    .into_any_element(),
                 icon(Icon::Choose)
                     .size(px(10.))
                     .text_color(p.faint)
@@ -162,6 +170,7 @@ impl RenderOnce for Dropdown {
         let trigger = look.snap(px(TRIGGER));
         let button = div()
             .id(self.id.clone())
+            .aria_label(self.label.clone())
             .h(trigger)
             .px(look.snap(px(PAD)))
             .flex()
