@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui_kit::{
-    App, ElementId, FontWeight, InteractiveElement, IntoElement, ParentElement, RenderOnce,
+    App, ElementId, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, RenderOnce,
     SharedString, StatefulInteractiveElement, Styled, TestSupportExt, Window, div, px,
 };
 
@@ -27,6 +27,7 @@ struct Choice {
     title: SharedString,
     line: SharedString,
     leading: Option<Icon>,
+    tint: Option<Hsla>,
 }
 
 #[derive(IntoElement)]
@@ -68,6 +69,7 @@ impl RadioChoices {
             title: title.into(),
             line: line.into(),
             leading: None,
+            tint: None,
         });
         self
     }
@@ -76,6 +78,15 @@ impl RadioChoices {
     pub fn leading(mut self, glyph: Icon) -> Self {
         if let Some(choice) = self.choices.last_mut() {
             choice.leading = Some(glyph);
+        }
+        self
+    }
+
+    /// The last choice's icon in `tint` instead of the faint ink (a machine's colour):
+    /// `<id>-<key>-leading` says its colour to the tests. The chosen one is marked by its dot.
+    pub fn tint(mut self, tint: Hsla) -> Self {
+        if let Some(choice) = self.choices.last_mut() {
+            choice.tint = Some(tint);
         }
         self
     }
@@ -133,11 +144,11 @@ impl RenderOnce for RadioChoices {
                 .line_height(px(20.))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(p.text)
-                .children(
-                    choice
-                        .leading
-                        .map(|glyph| icon(glyph).size(px(12.)).text_color(p.faint)),
-                )
+                .children(choice.leading.map(|glyph| {
+                    let ink = choice.tint.unwrap_or(p.faint);
+                    crate::seen::note_colour(&name(&choice.key, Some("leading")), ink);
+                    icon(glyph).size(px(12.)).text_color(ink)
+                }))
                 .child(choice.title.clone());
             let line = div()
                 .id(name(&choice.key, Some("line")))

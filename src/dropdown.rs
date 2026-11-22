@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    Anchor, AnyElement, App, Bounds, BoxShadow, ElementId, InteractiveElement, IntoElement,
+    Anchor, AnyElement, App, Bounds, BoxShadow, ElementId, Hsla, InteractiveElement, IntoElement,
     MouseButton, ParentElement, Pixels, RenderOnce, SharedString, StatefulInteractiveElement,
     Styled, TestSupportExt, Window, anchored, canvas, deferred, div, point, px,
 };
@@ -22,7 +22,7 @@ use crate::icons::{Icon, icon};
 use crate::interact::{dismiss_on_navigate, fade, hoverable, open_holding_overlay};
 use crate::layer;
 use crate::look::{Shaped as _, Surface, look};
-use crate::motion::{ENTER, HOVER, Motion, RISE};
+use crate::motion::{ENTER, HOVER, Motion, PANEL, RISE};
 use crate::reveal::changed;
 use crate::theme::palette;
 use crate::typography::Type;
@@ -63,6 +63,7 @@ pub struct Dropdown {
     id: ElementId,
     label: SharedString,
     leading: Option<Icon>,
+    tint: Option<Hsla>,
     strong: bool,
     mono: bool,
     open: bool,
@@ -80,6 +81,7 @@ impl Dropdown {
             id: id.into(),
             label: label.into(),
             leading: None,
+            tint: None,
             strong: false,
             mono: false,
             open: false,
@@ -94,6 +96,13 @@ impl Dropdown {
     /// An icon before the label.
     pub fn leading(mut self, glyph: Icon) -> Self {
         self.leading = Some(glyph);
+        self
+    }
+
+    /// The leading icon in `tint` instead of the faint ink (a machine's colour); it fades in with
+    /// the label when that changes. `<id>-leading` says its colour to the tests.
+    pub fn tint(mut self, tint: Hsla) -> Self {
+        self.tint = Some(tint);
         self
     }
 
@@ -160,12 +169,16 @@ impl RenderOnce for Dropdown {
         let said = changed(&label_id, &self.label, window, cx);
         crate::seen::note(&label_id, said);
         // The words go in after the fill, which the hover paints.
+        let leading_id = ElementId::Name(format!("{}-leading", id_text(&self.id)).into());
         let content: Vec<AnyElement> = self
             .leading
             .map(|glyph| {
-                icon(glyph)
-                    .size(px(14. * glyph.scale()))
-                    .text_color(p.faint)
+                let ink = self.tint.unwrap_or(p.faint);
+                crate::seen::note_colour(&leading_id, ink);
+                div()
+                    .flex_none()
+                    .opacity(said)
+                    .child(icon(glyph).size(px(14. * glyph.scale())).text_color(ink))
                     .into_any_element()
             })
             .into_iter()
@@ -393,6 +406,8 @@ pub struct MenuItem {
     id: ElementId,
     label: SharedString,
     leading: Option<Icon>,
+    tint: Option<Hsla>,
+    checked: Option<bool>,
     note: Option<SharedString>,
     detail: Option<SharedString>,
     slot: bool,
@@ -410,6 +425,8 @@ impl MenuItem {
             id: id.into(),
             label: label.into(),
             leading: None,
+            tint: None,
+            checked: None,
             note: None,
             detail: None,
             slot: false,
@@ -449,6 +466,23 @@ impl MenuItem {
 
     pub fn leading(mut self, glyph: Icon) -> Self {
         self.leading = Some(glyph);
+        self
+    }
+
+    /// The leading icon in `tint` instead of the faint ink (a machine's colour); it fades to the
+    /// faint ink with the rest of the entry when it is disabled. `<id>-leading` says its colour to
+    /// the tests.
+    pub fn tint(mut self, tint: Hsla) -> Self {
+        self.tint = Some(tint);
+        self
+    }
+
+    /// A check mark after the entry, for the one that is chosen: it fades and grows in over
+    /// [`PANEL`] when the entry becomes the chosen one, and out when another does. Its room is
+    /// kept whether it is chosen or not, so that no entry changes its width. `<id>-check` says
+    /// how far it is in to the tests.
+    pub fn checked(mut self, checked: bool) -> Self {
+        self.checked = Some(checked);
         self
     }
 
@@ -522,6 +556,8 @@ impl RenderOnce for MenuItem {
         let label = self.label;
         let label_id = ElementId::Name(format!("{}-label", id_text(&self.id)).into());
         let detail_id = ElementId::Name(format!("{}-detail", id_text(&self.id)).into());
+        let leading_id = ElementId::Name(format!("{}-leading", id_text(&self.id)).into());
+        let check_id = ElementId::Name(format!("{}-check", id_text(&self.id)).into());
         // The entry's parts go in after the fill, which the hover paints.
         // The icon has a cell of its own, 14 px wide whatever the glyph's scale (the stop's is
         // larger), so that every label starts at the same x.
@@ -536,9 +572,13 @@ impl RenderOnce for MenuItem {
                     .items_center()
                     .justify_center()
                     .children(leading.map(|glyph| {
-                        icon(glyph)
-                            .size(px(14. * glyph.scale()))
-                            .text_color(p.faint)
+                        let ink = match self.tint {
+                            Some(tint) if enabled < 1.0 => mix(p.faint, tint, enabled),
+                            Some(tint) => tint,
+                            None => p.faint,
+                        };
+                        crate::seen::note_colour(&leading_id, ink);
+                        icon(glyph).size(px(14. * glyph.scale())).text_color(ink)
                     }))
                     .into_any_element(),
             ),
@@ -582,10 +622,27 @@ impl RenderOnce for MenuItem {
                 .child(note)
                 .into_any_element()
         });
+        let check = self.checked.map(|checked| {
+            let key = ElementId::NamedChild(Arc::new(self.id.clone()), "checked".into());
+            let on = fade(key, checked, PANEL, window, cx);
+            crate::seen::note(&check_id, on);
+            div()
+                .w(px(12.))
+                .h(px(12.))
+                .flex_none()
+                .opacity(on)
+                .child(
+                    icon(Icon::Check)
+                        .size(px(12. * (0.6 + 0.4 * on)))
+                        .text_color(p.text),
+                )
+                .into_any_element()
+        });
         let content: Vec<AnyElement> = cell
             .into_iter()
             .chain([words])
             .chain(note)
+            .chain(check)
             .chain(self.trailing)
             .collect();
         let item = div()
