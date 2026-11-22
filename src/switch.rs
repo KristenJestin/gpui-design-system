@@ -58,61 +58,81 @@ impl Switch {
     }
 }
 
+/// `id`'s part named `name`: `<id>-track`, `<id>-knob`…
+fn part_of(id: &ElementId, name: &'static str) -> ElementId {
+    match id {
+        ElementId::Name(text) => ElementId::Name(format!("{text}-{name}").into()),
+        other => ElementId::NamedChild(Arc::new(other.clone()), name.into()),
+    }
+}
+
+/// A switch's track and knob alone, for a row that is the switch's whole hit area (an entry of a
+/// menu): the knob slides over [`PANEL`] to `on` and the colours fade along it, `hover` (0 to 1)
+/// warming the track as the pointer does a switch's own. The track is `<id>-track`, the knob
+/// `<id>-knob`.
+pub(crate) fn track(
+    id: &ElementId,
+    on: bool,
+    hover: f32,
+    window: &mut Window,
+    cx: &mut App,
+) -> impl IntoElement {
+    let p = palette(cx);
+    // 0 is off, 1 is on: the knob slides and the colours fade along it.
+    let slide = window.use_keyed_state(
+        ElementId::NamedChild(Arc::new(id.clone()), "slide".into()),
+        cx,
+        |_, _| Motion::settled(if on { 1.0 } else { 0.0 }),
+    );
+    let t = cx.background_executor().now();
+    let target = if on { 1.0 } else { 0.0 };
+    if slide.read(cx).target() != target {
+        let reduce = cx.reduce_motion();
+        slide.update(cx, |m, _| m.animate(target, PANEL, t, reduce));
+    }
+    let motion = *slide.read(cx);
+    if motion.is_running(t) {
+        window.request_animation_frame();
+    }
+    let at = motion.value(t);
+    let off_track = p.card2;
+    let on_track = mix(p.acc, p.on_acc, 0.08 * hover);
+    let track = mix(off_track, on_track, at);
+    let knob = mix(p.faint, p.on_acc, at);
+    // The border is always there so the knob's place does not depend on the state; it
+    // melts into the track as the switch turns on.
+    let border = mix(mix(p.line2, p.focus_line, hover), on_track, at);
+    // The knob sits inside the border: its travel and its place are what the border leaves.
+    let line = f32::from(look().border);
+    let travel = 30. - 2. * line - 2. * 2. - 12.;
+    div()
+        .id(part_of(id, "track"))
+        .relative()
+        .flex_none()
+        .mt(px(1.))
+        .w(px(30.))
+        .h(px(18.))
+        .surface(Surface::full().fill(track).line(border))
+        .child(
+            div()
+                .id(part_of(id, "knob"))
+                .absolute()
+                .top(px((18. - 2. * line - 12.) / 2.))
+                .left(px(2. + travel * at))
+                .size(px(12.))
+                .corners(Radius::Full)
+                .bg(knob)
+                .test_support(),
+        )
+        .test_support()
+}
+
 impl RenderOnce for Switch {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let p = palette(cx);
         let (state, now) = feel(&self.id, window, cx);
-        // 0 is off, 1 is on: the knob slides and the colours fade along it.
-        let slide = window.use_keyed_state(
-            ElementId::NamedChild(Arc::new(self.id.clone()), "slide".into()),
-            cx,
-            |_, _| Motion::settled(if self.on { 1.0 } else { 0.0 }),
-        );
-        let t = cx.background_executor().now();
-        let target = if self.on { 1.0 } else { 0.0 };
-        if slide.read(cx).target() != target {
-            let reduce = cx.reduce_motion();
-            slide.update(cx, |m, _| m.animate(target, PANEL, t, reduce));
-        }
-        let motion = *slide.read(cx);
-        if motion.is_running(t) {
-            window.request_animation_frame();
-        }
-        let at = motion.value(t);
-        let off_track = p.card2;
-        let on_track = mix(p.acc, p.on_acc, 0.08 * now.hover);
-        let track = mix(off_track, on_track, at);
-        let knob = mix(p.faint, p.on_acc, at);
-        // The border is always there so the knob's place does not depend on the state; it
-        // melts into the track as the switch turns on.
-        let border = mix(mix(p.line2, p.focus_line, now.hover), on_track, at);
-        let part = |name: &'static str| match &self.id {
-            ElementId::Name(text) => ElementId::Name(format!("{text}-{name}").into()),
-            other => ElementId::NamedChild(Arc::new(other.clone()), name.into()),
-        };
-        // The knob sits inside the border: its travel and its place are what the border leaves.
-        let line = f32::from(look().border);
-        let travel = 30. - 2. * line - 2. * 2. - 12.;
-        let track = div()
-            .id(part("track"))
-            .relative()
-            .flex_none()
-            .mt(px(1.))
-            .w(px(30.))
-            .h(px(18.))
-            .surface(Surface::full().fill(track).line(border))
-            .child(
-                div()
-                    .id(part("knob"))
-                    .absolute()
-                    .top(px((18. - 2. * line - 12.) / 2.))
-                    .left(px(2. + travel * at))
-                    .size(px(12.))
-                    .corners(Radius::Full)
-                    .bg(knob)
-                    .test_support(),
-            )
-            .test_support();
+        let track = track(&self.id, self.on, now.hover, window, cx);
+        let part = |name: &'static str| part_of(&self.id, name);
         let words = div()
             .flex()
             .flex_col()
