@@ -2,7 +2,7 @@
 
 The components, tokens and motion shared by applications built on GPUI through
 [gpui-kit](https://crates.io/crates/gpui-kit) and GPUI Fast: buttons, rows, cards, menus,
-dialogs, drawers, toasts, fields, tabs, skeletons, the palette every screen reads, and the motion
+dialogs, drawers, toasts, fields, tabs, skeletons, progress bars, the palette every screen reads, and the motion
 they share. Every screen of an application is built from these pieces; a second, slightly
 different version of one of them is a defect.
 
