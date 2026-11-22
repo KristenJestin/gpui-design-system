@@ -112,6 +112,11 @@ const NOT_CONTROLS: &[(&str, &str, &str)] = &[
         "a call on a `MenuItem`, which sets its own hand while it can act",
     ),
     (
+        "src/reorder.rs",
+        ".on_mouse_down(MouseButton::Left, move |down, _, cx| {",
+        "starts the drag of a row, which is the caller's own element and sets its own hand",
+    ),
+    (
         "src/subpage.rs",
         "row.on_click(move |_, window, cx| on_open(Some(key.clone()), window, cx))",
         "a call on a `ListRow`, which sets its own hand while it can act",

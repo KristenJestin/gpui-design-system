@@ -43,6 +43,7 @@ pub mod path;
 pub mod progress;
 pub mod qr_code;
 pub mod radio;
+pub mod reorder;
 pub mod reveal;
 pub mod rows;
 pub mod search_field;
@@ -101,6 +102,7 @@ pub use path::path_line;
 pub use progress::Progress;
 pub use qr_code::QrCode;
 pub use radio::RadioChoices;
+pub use reorder::{ReorderGroup, Reorderable, RowMove};
 pub use reveal::{
     Changing, Fold, Growing, Presence, PresenceOf, PulsingLabel, changed, changing, enter,
     fold_frame, growing, presence, presence_of,
