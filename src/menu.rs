@@ -28,6 +28,8 @@ struct Entry {
     label: SharedString,
     leading: Option<Icon>,
     detail: Option<SharedString>,
+    /// Why it cannot be picked now: set, it is inert and says so in its second line.
+    disabled: Option<SharedString>,
     danger: bool,
     pick: Handler,
 }
@@ -86,6 +88,7 @@ impl Menu {
             label: label.into(),
             leading,
             detail: None,
+            disabled: None,
             danger: false,
             pick: Rc::new(pick),
         });
@@ -96,6 +99,16 @@ impl Menu {
     pub fn detail(mut self, detail: impl Into<SharedString>) -> Self {
         if let Some(entry) = self.entries.last_mut() {
             entry.detail = Some(detail.into());
+        }
+        self
+    }
+
+    /// The last entry cannot be picked now: its ink fades to the faint one, it takes no hover and
+    /// no click, and its second line says `reason` (it replaces a detail). Built on every frame,
+    /// an entry that becomes enabled again fades back.
+    pub fn disabled(mut self, reason: impl Into<SharedString>) -> Self {
+        if let Some(entry) = self.entries.last_mut() {
+            entry.disabled = Some(reason.into());
         }
         self
     }
@@ -113,6 +126,7 @@ impl Menu {
             label: label.into(),
             leading: Some(Icon::Trash),
             detail: None,
+            disabled: None,
             danger: true,
             pick: Rc::new(pick),
         });
@@ -218,19 +232,22 @@ impl Render for Menu {
         let slot = self.entries.iter().any(|e| e.leading.is_some());
         let item = |entry: &Entry| {
             let (menu, pick) = (menu.clone(), entry.pick.clone());
-            let item =
-                MenuItem::new(entry.id.clone(), entry.label.clone()).on_click(move |window, cx| {
+            let item = MenuItem::new(entry.id.clone(), entry.label.clone());
+            let item = match &entry.disabled {
+                Some(reason) => item.disabled(reason.clone()),
+                None => item.on_click(move |window, cx| {
                     menu.update(cx, |menu, cx| menu.close(cx)).ok();
                     pick(window, cx);
-                });
+                }),
+            };
             let item = match entry.leading {
                 Some(glyph) => item.leading(glyph),
                 None if slot => item.slot(),
                 None => item,
             };
-            let item = match &entry.detail {
-                Some(detail) => item.detail(detail.clone()),
-                None => item,
+            let item = match (&entry.detail, &entry.disabled) {
+                (Some(detail), None) => item.detail(detail.clone()),
+                _ => item,
             };
             if entry.danger { item.danger() } else { item }.into_any_element()
         };

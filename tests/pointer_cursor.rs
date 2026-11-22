@@ -108,7 +108,7 @@ const NOT_CONTROLS: &[(&str, &str, &str)] = &[
     ),
     (
         "src/menu.rs",
-        "MenuItem::new(entry.id.clone(), entry.label.clone()).on_click(move |window, cx| {",
+        "None => item.on_click(move |window, cx| {",
         "a call on a `MenuItem`, which sets its own hand while it can act",
     ),
     (

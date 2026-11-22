@@ -10,7 +10,7 @@ use std::rc::Rc;
 use common::{advance, init};
 use gpui_design_system::motion::ENTER;
 use gpui_design_system::{Icon, Menu};
-use gpui_kit::test::TestWindowExt;
+use gpui_kit::test::{TestQueryExt as _, TestWindowExt};
 use gpui_kit::{
     AnyElement, AppContext as _, Context, Entity, IntoElement, ParentElement, Pixels, Render,
     Styled, TestAppContext, VisualTestContext, Window, div, px, size,
@@ -163,4 +163,32 @@ fn a_menu_entry_can_carry_a_second_line_that_is_cut_never_wrapped(cx: &mut TestA
         bounds("rename", cx).size.height < px(36.),
         "a row with no detail stays one line"
     );
+}
+
+#[gpui_kit::test]
+fn a_disabled_entry_is_inert_and_says_why_in_one_line(cx: &mut TestAppContext) {
+    let picked = Rc::new(std::cell::Cell::new(0));
+    let seen = picked.clone();
+    let cx = opened(cx, move |cx| {
+        let (a, b) = (seen.clone(), seen.clone());
+        Menu::new("more", "More", cx)
+            .entry("rename", "Rename", Some(Icon::Edit), move |_, _| {
+                a.set(a.get() + 1)
+            })
+            .disabled("The hub refuses now")
+            .entry("look", "Change look…", Some(Icon::Plus), move |_, _| {
+                b.set(b.get() + 10)
+            })
+    });
+    // The reason is the entry's second line, and the entry keeps its one label.
+    let reason = cx.update(|window, _| window.find("rename-detail").label().map(str::to_owned));
+    assert_eq!(reason.as_deref(), Some("The hub refuses now"));
+    cx.update(|window, cx| window.click("rename", cx));
+    assert_eq!(picked.get(), 0, "a disabled entry picks nothing");
+    assert!(
+        cx.update(|window, _| window.try_find_by_label("Rename").is_some()),
+        "and the menu stays open on it"
+    );
+    cx.update(|window, cx| window.click("look", cx));
+    assert_eq!(picked.get(), 10, "the others are picked as ever");
 }
