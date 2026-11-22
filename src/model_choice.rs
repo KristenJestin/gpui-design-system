@@ -7,12 +7,14 @@
 //!
 //! [`ModelPicker`] is the other way to say the same three things where a line has room for one
 //! control only (a composer): the provider, its model and the effort in one picker, closed it says
-//! `<provider> · <model> · <effort>`, open it is one menu that lists the providers, the models of
-//! the chosen one, then the efforts of the chosen model, none when it offers none.
+//! `<provider> · <model> · <effort>`, open it is one menu of three columns side by side: the
+//! providers, the models of the chosen one, then the efforts of the chosen model, a column that
+//! folds away when it offers none.
 //!
 //! The kit knows no provider: the screen gives the models the application knows ([`ModelEntry`]).
 
 use std::rc::Rc;
+use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -25,8 +27,8 @@ use crate::field::Field;
 use crate::icons::{Icon, icon};
 use crate::interact::{fade, selectable};
 use crate::look::{Shaped as _, Surface, look};
-use crate::motion::PANEL;
-use crate::reveal::{changed, presence};
+use crate::motion::{Motion, PANEL};
+use crate::reveal::{Shown, changed, drive};
 use crate::select::{Select, SelectOption};
 use crate::space;
 use crate::theme::{Palette, palette};
@@ -553,8 +555,13 @@ impl RenderOnce for ModelChoice {
     }
 }
 
-/// The width of an [`ModelPicker`]'s menu.
-const PICKER_MENU: f32 = 260.;
+/// The widths of the columns of an [`ModelPicker`]'s menu: the providers, the models, the efforts.
+const PROVIDERS_COLUMN: f32 = 150.;
+const MODELS_COLUMN: f32 = 180.;
+const EFFORTS_COLUMN: f32 = 140.;
+/// The height of an entry of the menu: the columns are as tall as their longest one whatever
+/// the choice, so that the menu does not change its height when the efforts fold away.
+const ROW: f32 = 30.;
 
 /// The provider, the model and the effort in one picker. The screen owns what is chosen and
 /// gives it back on every frame; the menu's own state (open or not) the picker keeps.
@@ -562,7 +569,7 @@ const PICKER_MENU: f32 = 260.;
 /// Choosing a provider picks its first model, as given, with the effort that model proposes. The
 /// effort that applies is `effort` when the model offers it, the one the model proposes
 /// otherwise, and it is reported as `None` when it is that one. A pick of a provider or of a model
-/// that offers efforts leaves the menu open, so that the next section can be chosen; the others
+/// that offers efforts leaves the menu open, so that the next column can be chosen; the others
 /// close it, as do Escape and a click outside.
 #[derive(IntoElement)]
 pub struct ModelPicker {
@@ -610,7 +617,41 @@ impl ModelPicker {
     }
 }
 
-/// A title above a section of the menu.
+/// `content`, `width` wide, folded sideways: it unfolds and fades in when `present` turns true and
+/// folds away when it turns false, over [`PANEL`]. Absent at rest, it is not drawn at all.
+fn sideways(
+    id: SharedString,
+    present: bool,
+    width: f32,
+    content: impl IntoElement,
+    window: &mut Window,
+    cx: &mut App,
+) -> AnyElement {
+    let key = ElementId::NamedChild(Arc::new(ElementId::Name(id.clone())), "presence".into());
+    let state = window.use_keyed_state(key, cx, move |_, _| {
+        Shown::new(Motion::settled(if present { 1.0 } else { 0.0 }))
+    });
+    let at = drive(&state, present, window, cx);
+    if !present && !at.running {
+        return div().hidden().into_any_element();
+    }
+    let outer = div()
+        .id(ElementId::Name(id))
+        .flex_none()
+        .aria_expanded(present)
+        .test_support();
+    if present && !at.running {
+        return outer.child(content).into_any_element();
+    }
+    outer
+        .w(px(width * at.t))
+        .overflow_hidden()
+        .opacity(at.t)
+        .child(div().w(px(width)).child(content))
+        .into_any_element()
+}
+
+/// A title above a column of the menu.
 fn section(id: SharedString, title: &str, p: &Palette) -> AnyElement {
     div()
         .id(ElementId::Name(id))
@@ -646,8 +687,7 @@ fn entry(
         .aria_selected(chosen)
         .relative()
         .flex_none()
-        .min_h(px(30.))
-        .py(px(6.))
+        .h(px(ROW))
         .pl(px(30.))
         .pr(px(10.))
         .flex()
@@ -662,7 +702,14 @@ fn entry(
         crate::seen::note(&hover_id, hover);
         crate::seen::note(&mark_id, on);
         d.surface(Surface::new(px(6.)).fill(p.hover.opacity(hover)))
-            .child(title)
+            .child(
+                div()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .child(title),
+            )
             .child(
                 div()
                     .absolute()
@@ -741,13 +788,56 @@ impl RenderOnce for ModelPicker {
             }
         }
         let now = current.as_ref().map(|m| m.provider.clone());
-        let mut items: Vec<AnyElement> =
-            vec![section(part(&id, "providers-label"), "Provider", &p)];
+        // The columns are as tall as the longest list they may hold.
+        let rows = providers
+            .len()
+            .max(
+                providers
+                    .iter()
+                    .map(|(key, _)| self.models.iter().filter(|m| m.provider == *key).count())
+                    .max()
+                    .unwrap_or(0),
+            )
+            .max(
+                self.models
+                    .iter()
+                    .map(|m| m.efforts.len())
+                    .max()
+                    .unwrap_or(0),
+            );
+        let column = |width: f32, heading: AnyElement, body: AnyElement| {
+            div()
+                .w(px(width))
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .child(heading)
+                .child(body)
+        };
+        let body = |entries: Vec<AnyElement>| {
+            div()
+                .min_h(px(ROW * rows as f32))
+                .flex()
+                .flex_col()
+                .children(entries)
+        };
+        // A rule between two columns, with the space around it.
+        let ruled = f32::from(look().border) + 8.;
+        let rule = || {
+            div()
+                .flex_none()
+                .w(look().border)
+                .my(px(4.))
+                .mx(px(4.))
+                .bg(p.line)
+        };
+
+        let mut entries: Vec<AnyElement> = Vec::new();
         for (key, title) in providers {
             let chosen = now.as_ref() == Some(&key);
             let first = self.models.iter().find(|m| m.provider == key).cloned();
             let report = report.clone();
-            items.push(entry(
+            entries.push(entry(
                 part(&id, &format!("provider-{}", name(&key))),
                 title,
                 chosen,
@@ -759,20 +849,18 @@ impl RenderOnce for ModelPicker {
                 p,
             ));
         }
-        items.push(
-            div()
-                .h(look().border)
-                .mx(px(2.))
-                .my(px(4.))
-                .bg(p.line)
-                .into_any_element(),
+        let providers_column = column(
+            PROVIDERS_COLUMN,
+            section(part(&id, "providers-label"), "Provider", &p),
+            body(entries).into_any_element(),
         );
 
-        // The models of the chosen provider: the block fades in again when the provider changes.
+        // The models of the chosen provider: the column fades in again when the provider changes.
         let models_id = part(&id, "models");
         let said: SharedString = now.clone().unwrap_or_default();
         let fading = changed(&ElementId::Name(models_id.clone()), &said, window, cx);
-        let mut models = vec![section(part(&id, "models-label"), "Model", &p)];
+        crate::seen::note(&ElementId::Name(part(&id, "models-fade")), fading);
+        let mut entries = Vec::new();
         for (index, m) in self
             .models
             .iter()
@@ -782,7 +870,7 @@ impl RenderOnce for ModelPicker {
             let chosen = index == at;
             let (report, close, m) = (report.clone(), close.clone(), m.clone());
             let ends = m.efforts.is_empty();
-            models.push(entry(
+            entries.push(entry(
                 part(
                     &id,
                     &format!(
@@ -805,13 +893,13 @@ impl RenderOnce for ModelPicker {
                 p,
             ));
         }
-        items.push(
+        let models_column = column(
+            MODELS_COLUMN,
+            section(part(&id, "models-label"), "Model", &p),
             div()
                 .id(ElementId::Name(models_id))
                 .opacity(fading)
-                .flex()
-                .flex_col()
-                .children(models)
+                .child(body(entries))
                 .test_support()
                 .into_any_element(),
         );
@@ -828,16 +916,13 @@ impl RenderOnce for ModelPicker {
                 .collect();
             kept.update(cx, |kept, _| *kept = rows);
         }
-        let rows = kept.read(cx).clone();
+        let kept_rows = kept.read(cx).clone();
         let chosen = current
             .as_ref()
             .map_or_else(|| self.chosen.clone(), ModelEntry::chosen);
-        let efforts_block = div()
-            .flex()
-            .flex_col()
-            .child(div().h(look().border).mx(px(2.)).my(px(4.)).bg(p.line))
-            .child(section(part(&id, "efforts-label"), "Effort", &p))
-            .children(rows.into_iter().map(|(effort, is_chosen)| {
+        let entries = kept_rows
+            .into_iter()
+            .map(|(effort, is_chosen)| {
                 let (report, close, chosen) = (report.clone(), close.clone(), chosen.clone());
                 let proposed = proposes.as_ref() == Some(&effort);
                 entry(
@@ -853,10 +938,26 @@ impl RenderOnce for ModelPicker {
                     },
                     p,
                 )
-            }));
-        items.push(
-            presence(part(&id, "efforts"), !efforts.is_empty(), efforts_block).into_any_element(),
-        );
+            })
+            .collect();
+        let efforts_column = div().flex().flex_none().child(rule()).child(column(
+            EFFORTS_COLUMN,
+            section(part(&id, "efforts-label"), "Effort", &p),
+            body(entries).into_any_element(),
+        ));
+        let columns = div()
+            .flex()
+            .child(providers_column)
+            .child(rule())
+            .child(models_column)
+            .child(sideways(
+                part(&id, "efforts"),
+                !efforts.is_empty(),
+                ruled + EFFORTS_COLUMN,
+                efforts_column,
+                window,
+                cx,
+            ));
 
         let toggle = {
             let open = open.clone();
@@ -869,8 +970,14 @@ impl RenderOnce for ModelPicker {
         };
         Dropdown::new(id, label)
             .open(is_open)
-            .width(px(PICKER_MENU))
-            .items(items)
+            .room(px(PROVIDERS_COLUMN
+                + MODELS_COLUMN
+                + EFFORTS_COLUMN
+                + 2. * ruled
+                // The panel's padding and its border.
+                + 8.
+                + 2. * f32::from(look().border)))
+            .item(columns)
             .on_toggle(toggle)
     }
 }

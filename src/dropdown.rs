@@ -6,14 +6,15 @@
 //! click anywhere outside it closes it and goes no further. Opened from a dialog, it is drawn
 //! above the dialog ([`layer`](crate::layer)).
 
+use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    Anchor, AnyElement, App, BoxShadow, ElementId, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Pixels, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
-    TestSupportExt, Window, anchored, deferred, div, point, px,
+    Anchor, AnyElement, App, Bounds, BoxShadow, ElementId, InteractiveElement, IntoElement,
+    MouseButton, ParentElement, Pixels, RenderOnce, SharedString, StatefulInteractiveElement,
+    Styled, TestSupportExt, Window, anchored, canvas, deferred, div, point, px,
 };
 
 use crate::color::mix;
@@ -49,6 +50,9 @@ pub(crate) type Handler = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
 pub(crate) enum Width {
     Fixed(Pixels),
     Fit(Pixels),
+    /// As wide as its content, which may change while it is open, but placed (anchored) as if
+    /// it were this wide: it does not jump to the other side of its button when it grows.
+    Room(Pixels),
 }
 
 /// The widest a menu grows: a longer label is cut with an ellipsis.
@@ -64,6 +68,7 @@ pub struct Dropdown {
     open: bool,
     align: Align,
     width: Pixels,
+    room: bool,
     items: Vec<AnyElement>,
     on_toggle: Option<Handler>,
 }
@@ -80,6 +85,7 @@ impl Dropdown {
             open: false,
             align: Align::Start,
             width: px(260.),
+            room: false,
             items: Vec::new(),
             on_toggle: None,
         }
@@ -115,6 +121,14 @@ impl Dropdown {
 
     pub fn width(mut self, width: Pixels) -> Self {
         self.width = width;
+        self
+    }
+
+    /// The list is as wide as its items make it, and is placed as if it were [`width`](Self::width)
+    /// wide (less in a narrow window): for items that fold sideways while it is open.
+    pub fn room(mut self, width: Pixels) -> Self {
+        self.width = width;
+        self.room = true;
         self
     }
 
@@ -191,7 +205,26 @@ impl RenderOnce for Dropdown {
                 .text_color(mix(ink, p.text, t))
                 .children(content)
         });
-        let root = div().relative().flex_none().child(button);
+        // Where the button is, for a list that is placed by its widest width: it lines up with the
+        // button's right edge when it would not fit from the left one.
+        let at = window.use_keyed_state(
+            ElementId::NamedChild(Arc::new(self.id.clone()), "at".into()),
+            cx,
+            |_, _| Rc::new(Cell::new(Bounds::<Pixels>::default())),
+        );
+        let at = at.read(cx).clone();
+        let measure = {
+            let at = at.clone();
+            canvas(move |bounds, _, _| at.set(bounds), |_, _, _, _| {})
+                .absolute()
+                .size_full()
+        };
+        let root = div().relative().flex_none().child(button).child(measure);
+        let align = if self.room && at.get().left() + self.width > window.viewport_size().width {
+            Align::End
+        } else {
+            self.align
+        };
         // The list comes and goes like the "⋯" menu's: it stays drawn until its close ends.
         let fade = window.use_keyed_state(
             ElementId::NamedChild(Arc::new(self.id.clone()), "fade".into()),
@@ -224,8 +257,12 @@ impl RenderOnce for Dropdown {
         root.child(list_overlay(
             &self.id,
             f32::from(trigger),
-            self.align,
-            Width::Fixed(self.width),
+            align,
+            if self.room {
+                Width::Room(self.width)
+            } else {
+                Width::Fixed(self.width)
+            },
             self.items,
             dismiss,
             t,
@@ -288,6 +325,7 @@ pub(crate) fn list_overlay(
             Width::Fit(least) => d
                 .min_w(least)
                 .max_w(px(MENU_MAX).min(viewport.width - px(16.))),
+            Width::Room(room) => d.max_w(room.min(viewport.width - px(16.))),
         })
         .p(px(4.))
         .surface(Surface::new(px(10.)).fill(p.card).line(p.line2))
@@ -318,7 +356,19 @@ pub(crate) fn list_overlay(
             Align::End => Anchor::TopRight,
         })
         .offset(point(px(0.), px(trigger - GAP)))
-        .child(div().py(px(GAP)).child(panel));
+        .child(match width {
+            Width::Room(room) => div()
+                .w(room.min(viewport.width - px(16.)))
+                .py(px(GAP))
+                .flex()
+                .map(|d| match align {
+                    Align::Start => d.justify_start(),
+                    Align::End => d.justify_end(),
+                })
+                .child(panel)
+                .into_any_element(),
+            _ => div().py(px(GAP)).child(panel).into_any_element(),
+        });
     div()
         .absolute()
         .top_0()
