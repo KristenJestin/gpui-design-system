@@ -93,7 +93,7 @@ pub use listing::{Item, Listing, Placement};
 pub use look::{Corners, Fonts, Look, Shadow, Sizes, look};
 pub use menu::Menu;
 pub use modal::Modal;
-pub use model_choice::{Chosen, ModelChoice, ModelEntry};
+pub use model_choice::{Chosen, ModelChoice, ModelEntry, ModelPicker};
 pub use page::{EmptyLine, PageHeader, Section};
 pub use pager::{Dots, Sliding, sliding};
 pub use path::path_line;
