@@ -30,6 +30,8 @@ struct Entry {
     detail: Option<SharedString>,
     /// Why it cannot be picked now: set, it is inert and says so in its second line.
     disabled: Option<SharedString>,
+    /// A switch's state: the entry ends with its track, and a click turns it.
+    switch: Option<bool>,
     danger: bool,
     pick: Handler,
 }
@@ -89,10 +91,42 @@ impl Menu {
             leading,
             detail: None,
             disabled: None,
+            switch: None,
             danger: false,
             pick: Rc::new(pick),
         });
         self
+    }
+
+    /// An entry that is a switch: its label, and at its end the track of a switch, which slides
+    /// as `on` changes ([`set_switch`](Self::set_switch)) and fades like any switch. A click picks
+    /// it and closes the menu, as for any entry; `pick` turns the thing it stands for.
+    pub fn switch(
+        mut self,
+        id: impl Into<ElementId>,
+        label: impl Into<SharedString>,
+        leading: Option<Icon>,
+        on: bool,
+        pick: impl Fn(&mut Window, &mut gpui_kit::App) + 'static,
+    ) -> Self {
+        self = self.entry(id, label, leading, pick);
+        if let Some(entry) = self.entries.last_mut() {
+            entry.switch = Some(on);
+        }
+        self
+    }
+
+    /// The switch entry `id` is on or off now: its knob slides there.
+    pub fn set_switch(&mut self, id: &ElementId, on: bool, cx: &mut Context<Self>) {
+        if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|entry| &entry.id == id && entry.switch.is_some())
+            && entry.switch != Some(on)
+        {
+            entry.switch = Some(on);
+            cx.notify();
+        }
     }
 
     /// A second, fainter line under the last entry's label, cut to one line.
@@ -127,6 +161,7 @@ impl Menu {
             leading: Some(Icon::Trash),
             detail: None,
             disabled: None,
+            switch: None,
             danger: true,
             pick: Rc::new(pick),
         });
@@ -230,7 +265,7 @@ impl Render for Menu {
         let menu = cx.entity().downgrade();
         let p = crate::theme::palette(cx);
         let slot = self.entries.iter().any(|e| e.leading.is_some());
-        let item = |entry: &Entry| {
+        let item = |entry: &Entry, window: &mut Window, cx: &mut gpui_kit::App| {
             let (menu, pick) = (menu.clone(), entry.pick.clone());
             let item = MenuItem::new(entry.id.clone(), entry.label.clone());
             let item = match &entry.disabled {
@@ -249,15 +284,24 @@ impl Render for Menu {
                 (Some(detail), None) => item.detail(detail.clone()),
                 _ => item,
             };
+            let item = match entry.switch {
+                Some(on) => item.trailing(crate::switch::track(&entry.id, on, 0., window, cx)),
+                None => item,
+            };
             if entry.danger { item.danger() } else { item }.into_any_element()
         };
         let mut items: Vec<_> = self
             .entries
             .iter()
             .filter(|e| !e.danger)
-            .map(item)
+            .map(|e| item(e, window, cx))
             .collect();
-        let dangers: Vec<_> = self.entries.iter().filter(|e| e.danger).map(item).collect();
+        let dangers: Vec<_> = self
+            .entries
+            .iter()
+            .filter(|e| e.danger)
+            .map(|e| item(e, window, cx))
+            .collect();
         if !items.is_empty() && !dangers.is_empty() {
             items.push(
                 div()

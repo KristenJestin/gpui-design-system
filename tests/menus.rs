@@ -40,8 +40,16 @@ fn opened(
     cx: &mut TestAppContext,
     make: impl Fn(&mut Context<Menu>) -> Menu + 'static,
 ) -> &mut VisualTestContext {
+    opened_keeping(cx, Rc::default(), make)
+}
+
+/// [`opened`], the menu's entity kept in `kept` for the test to reach.
+fn opened_keeping(
+    cx: &mut TestAppContext,
+    kept: Rc<RefCell<Option<Entity<Menu>>>>,
+    make: impl Fn(&mut Context<Menu>) -> Menu + 'static,
+) -> &mut VisualTestContext {
     init(cx);
-    let kept: Rc<RefCell<Option<Entity<Menu>>>> = Rc::default();
     let (_, cx) = cx.add_window_view(move |_, _| Host {
         draw: Box::new(move |_, cx| {
             let menu = kept
@@ -191,4 +199,48 @@ fn a_disabled_entry_is_inert_and_says_why_in_one_line(cx: &mut TestAppContext) {
     );
     cx.update(|window, cx| window.click("look", cx));
     assert_eq!(picked.get(), 10, "the others are picked as ever");
+}
+
+#[gpui_kit::test]
+fn a_switch_entry_slides_its_knob_when_it_turns_and_picks_like_an_entry(cx: &mut TestAppContext) {
+    use gpui_design_system::motion::PANEL;
+
+    let picked = Rc::new(std::cell::Cell::new(0));
+    let seen = picked.clone();
+    let kept: Rc<RefCell<Option<Entity<Menu>>>> = Rc::default();
+    let cx = opened_keeping(cx, kept.clone(), move |cx| {
+        let seen = seen.clone();
+        Menu::new("more", "More", cx)
+            .entry("new", "New group…", Some(Icon::Plus), |_, _| {})
+            .switch(
+                "grouped",
+                "Group by machine",
+                Some(Icon::Edit),
+                false,
+                move |_, _| seen.set(seen.get() + 1),
+            )
+    });
+    let offset = |cx: &mut VisualTestContext| {
+        let (track, knob) = (bounds("grouped-track", cx), bounds("grouped-knob", cx));
+        f32::from(knob.left() - track.left())
+    };
+    let (row, track) = (bounds("grouped", cx), bounds("grouped-track", cx));
+    assert!(
+        track.right() <= row.right() && track.left() > bounds("grouped-label", cx).left(),
+        "the track ends the entry: {track:?} in {row:?}"
+    );
+    let off = offset(cx);
+
+    // Turned on from outside the menu, the knob slides: part way, then there.
+    let menu = kept.borrow().clone().unwrap();
+    menu.update(cx, |menu, cx| menu.set_switch(&"grouped".into(), true, cx));
+    advance(cx, PANEL / 4);
+    let part_way = offset(cx);
+    advance(cx, PANEL * 2);
+    let on = offset(cx);
+    assert!(off < part_way && part_way < on, "{off} < {part_way} < {on}");
+
+    // A click on the entry picks it, as any entry, and closes the menu.
+    cx.update(|window, cx| window.click("grouped", cx));
+    assert_eq!(picked.get(), 1);
 }

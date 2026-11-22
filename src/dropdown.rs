@@ -350,6 +350,7 @@ pub struct MenuItem {
     marked: bool,
     danger: bool,
     disabled: Option<SharedString>,
+    trailing: Option<AnyElement>,
     on_click: Option<Handler>,
 }
 
@@ -366,8 +367,15 @@ impl MenuItem {
             marked: false,
             danger: false,
             disabled: None,
+            trailing: None,
             on_click: None,
         }
+    }
+
+    /// What ends the entry, after its words: the track of a switch.
+    pub fn trailing(mut self, element: impl IntoElement) -> Self {
+        self.trailing = Some(element.into_any_element());
+        self
     }
 
     /// A second, fainter line under the label, cut to one line: what the entry acts on.
@@ -524,7 +532,12 @@ impl RenderOnce for MenuItem {
                 .child(note)
                 .into_any_element()
         });
-        let content: Vec<AnyElement> = cell.into_iter().chain([words]).chain(note).collect();
+        let content: Vec<AnyElement> = cell
+            .into_iter()
+            .chain([words])
+            .chain(note)
+            .chain(self.trailing)
+            .collect();
         let item = div()
             .id(self.id)
             .flex_none()
