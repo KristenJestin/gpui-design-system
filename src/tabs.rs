@@ -2,7 +2,9 @@
 //! shown alone. Unlike [`Segmented`] (two or three short words that switch a mode), it takes as
 //! many tabs as a page has sections, each with a count when it lists something. The chosen one is
 //! marked by a bar under it that slides to the one clicked over [`PANEL`], widening or narrowing
-//! to its words, while the inks fade along it; each tab fades its hover.
+//! to its words, while the inks fade along it; each tab fades its hover. A tab's count scales and
+//! fades in when it appears and out when it goes (an empty count is no count), the tab widening and
+//! narrowing with it, and its number fades in again when it changes.
 //!
 //! [`Segmented`]: crate::Segmented
 
@@ -17,15 +19,23 @@ use gpui_kit::{
 use crate::color::mix;
 use crate::interact::hoverable;
 use crate::look::{Shaped as _, Side, Surface, Which, look};
-use crate::motion::{Motion, PANEL};
+use crate::motion::{Motion, PANEL, SWAP_FROM};
+use crate::reveal::changed;
 use crate::theme::palette;
 use crate::typography::{MONO, Type, control_font};
+
+/// What a counted tab remembers between frames: the count it last said (it keeps saying it while
+/// it leaves) and how present it is, 0 to 1.
+struct Counted {
+    text: SharedString,
+    presence: Motion,
+}
 
 type OnChoose = Box<dyn Fn(usize, &mut Window, &mut App) + 'static>;
 
 const TEXT: f32 = 12.5;
 const COUNT: f32 = 11.;
-/// Between a tab's name and its count.
+/// Between a tab's name and its count, once the count has arrived.
 const GAP: f32 = 6.;
 const BAR: f32 = 2.;
 
@@ -66,7 +76,8 @@ impl Tabs {
         self
     }
 
-    /// A tab whose section lists something: its count follows its name.
+    /// A tab whose section lists something: its count follows its name. An empty `count` is no
+    /// count: it scales and fades out, and scales and fades in again with the next one.
     pub fn counted(
         mut self,
         key: impl Into<SharedString>,
@@ -128,16 +139,62 @@ impl RenderOnce for Tabs {
             window.request_animation_frame();
         }
         let at = motion.value(now);
-        // Each tab is as wide as its words and its count: the marker slides from one place and
-        // width to the other's.
-        let widths: Vec<f32> = self
+        // A counted tab's count: what it says, how present it is, how wide it is at full size and
+        // how far its number has faded back in.
+        let reduce = cx.reduce_motion();
+        let counts: Vec<Option<Count>> = self
             .tabs
             .iter()
             .map(|tab| {
-                let count = tab
-                    .count
+                let given = tab.count.as_ref()?;
+                let target = if given.is_empty() { 0. } else { 1. };
+                let state = window.use_keyed_state(
+                    ElementId::NamedChild(
+                        Arc::new(self.id.clone()),
+                        format!("{}-count", tab.key).into(),
+                    ),
+                    cx,
+                    |_, _| Counted {
+                        text: given.clone(),
+                        presence: Motion::settled(target),
+                    },
+                );
+                let (text, presence) = state.update(cx, |counted, _| {
+                    if !given.is_empty() {
+                        counted.text = given.clone();
+                    }
+                    if counted.presence.target() != target {
+                        counted.presence.animate(target, PANEL, now, reduce);
+                    }
+                    (counted.text.clone(), counted.presence)
+                });
+                if presence.is_running(now) {
+                    window.request_animation_frame();
+                }
+                let presence = presence.value(now);
+                (presence > 0.).then(|| {
+                    let id =
+                        ElementId::Name(format!("{}-{}-count", id_text(&self.id), tab.key).into());
+                    Count {
+                        width: width_of(&text, font(MONO), COUNT, window),
+                        fade: changed(&id, &text, window, cx),
+                        id,
+                        text,
+                        presence,
+                    }
+                })
+            })
+            .collect();
+        // Each tab is as wide as its words and the part of its count that has arrived: the marker
+        // slides from one place and width to the other's.
+        let widths: Vec<f32> = self
+            .tabs
+            .iter()
+            .zip(&counts)
+            .map(|(tab, count)| {
+                let count = count
                     .as_ref()
-                    .map_or(0., |count| GAP + width_of(count, font(MONO), COUNT, window));
+                    .map_or(0., |count| (GAP + count.width) * count.presence);
                 (width_of(&tab.label, control_font(), TEXT, window) + count + 2. * pad).ceil()
             })
             .collect();
@@ -165,54 +222,69 @@ impl RenderOnce for Tabs {
                 None => ElementId::Name(base.into()),
             }
         };
-        let tabs = self.tabs.iter().enumerate().map(|(index, tab)| {
-            // How near the marker is to this tab: 1 on it, 0 a tab away or more.
-            let near = (1.0 - (at - index as f32).abs()).clamp(0.0, 1.0);
-            let on_choose = on_choose.clone();
-            // The words go in after the fill, which the hover paints.
-            let content: Vec<AnyElement> = std::iter::once(tab.label.clone().into_any_element())
-                .chain(tab.count.clone().map(|count| {
-                    div()
-                        .id(name(&tab.key, Some("count")))
-                        .aria_label(count.clone())
-                        .mono(COUNT)
-                        .child(count)
-                        .test_support()
-                        .into_any_element()
-                }))
-                .collect();
-            let mut element = div()
-                .id(name(&tab.key, None))
-                .aria_label(tab.label.clone())
-                .aria_selected(index == chosen)
-                .flex_none()
-                .w(px(widths[index]))
-                .h(px(height - BAR))
-                .flex()
-                .items_center()
-                .justify_center()
-                .gap(px(GAP))
-                .whitespace_nowrap()
-                .ui_face()
-                .control_face()
-                .text_size(px(TEXT));
-            if index != chosen
-                && let Some(on_choose) = on_choose
-            {
-                element = element
-                    .cursor_pointer()
-                    .on_click(move |_: &ClickEvent, window, cx| on_choose(index, window, cx));
-            }
-            hoverable(element, move |d, hover| {
-                d.surface(
-                    Surface::new(px(6.))
-                        .at(Which::Top)
-                        .fill(p.hover.opacity(hover * (1. - near))),
-                )
-                .text_color(mix(mix(p.faint, p.text, hover), p.text, near))
-                .children(content)
-            })
-        });
+        let tabs = self
+            .tabs
+            .iter()
+            .zip(counts)
+            .enumerate()
+            .map(|(index, (tab, count))| {
+                // How near the marker is to this tab: 1 on it, 0 a tab away or more.
+                let near = (1.0 - (at - index as f32).abs()).clamp(0.0, 1.0);
+                let on_choose = on_choose.clone();
+                // The words go in after the fill, which the hover paints.
+                let content: Vec<AnyElement> =
+                    std::iter::once(tab.label.clone().into_any_element())
+                        .chain(count.map(|count| {
+                            // It grows from `SWAP_FROM` of its size, and takes its place and its gap as
+                            // it does.
+                            let scale = SWAP_FROM + (1. - SWAP_FROM) * count.presence;
+                            div()
+                                .id(count.id)
+                                .aria_label(count.text.clone())
+                                .flex_none()
+                                .flex()
+                                .justify_center()
+                                .whitespace_nowrap()
+                                .ml(px(GAP * count.presence))
+                                .w(px(count.width * count.presence))
+                                .opacity(count.presence * count.fade)
+                                .mono(COUNT * scale)
+                                .child(count.text)
+                                .test_support()
+                                .into_any_element()
+                        }))
+                        .collect();
+                let mut element = div()
+                    .id(name(&tab.key, None))
+                    .aria_label(tab.label.clone())
+                    .aria_selected(index == chosen)
+                    .flex_none()
+                    .w(px(widths[index]))
+                    .h(px(height - BAR))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .whitespace_nowrap()
+                    .ui_face()
+                    .control_face()
+                    .text_size(px(TEXT));
+                if index != chosen
+                    && let Some(on_choose) = on_choose
+                {
+                    element = element
+                        .cursor_pointer()
+                        .on_click(move |_: &ClickEvent, window, cx| on_choose(index, window, cx));
+                }
+                hoverable(element, move |d, hover| {
+                    d.surface(
+                        Surface::new(px(6.))
+                            .at(Which::Top)
+                            .fill(p.hover.opacity(hover * (1. - near))),
+                    )
+                    .text_color(mix(mix(p.faint, p.text, hover), p.text, near))
+                    .children(content)
+                })
+            });
         // The rule under the tabs is the wrapper's border; the tabs scroll sideways when the
         // window is too narrow for all of them, the marker with them.
         div().w_full().edge(Side::Bottom, p.line).child(
@@ -242,6 +314,18 @@ impl RenderOnce for Tabs {
                 .test_support(),
         )
     }
+}
+
+/// A counted tab's count as it is drawn in one frame.
+struct Count {
+    id: ElementId,
+    text: SharedString,
+    /// 0 to 1: how far it has scaled in.
+    presence: f32,
+    /// Its width at full size.
+    width: f32,
+    /// 1 at rest, lower while a changed number fades back in.
+    fade: f32,
 }
 
 /// The text of a named id, for the ids of the parts.
