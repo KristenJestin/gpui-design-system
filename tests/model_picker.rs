@@ -1,6 +1,7 @@
 //! `ModelPicker`, one control for the provider, its model and its effort, on GPUI's test platform:
 //! closed it says the three in one label; open, one menu with the providers, the models of the
-//! chosen one, then the efforts of the chosen model, none when it offers none.
+//! chosen one, then the efforts of the chosen model, none when it offers none: three columns side
+//! by side, the last one folding away when the model offers no effort.
 
 mod common;
 
@@ -21,6 +22,8 @@ use gpui_kit::{
 type Seen = Rc<RefCell<Vec<(Chosen, Option<SharedString>)>>>;
 
 struct Host {
+    /// In the bottom right corner of the window, as a composer's dock has it.
+    corner: bool,
     chosen: Chosen,
     effort: Option<SharedString>,
     seen: Seen,
@@ -55,15 +58,34 @@ impl Render for Host {
                 })
                 .ok();
             });
+        if self.corner {
+            return div()
+                .size_full()
+                .p(px(16.))
+                .flex()
+                .flex_col()
+                .justify_end()
+                .items_end()
+                .child(picker);
+        }
         div().size_full().p(px(16.)).child(picker)
     }
 }
 
 fn host(cx: &mut TestAppContext, chosen: Chosen) -> (Entity<Host>, &mut VisualTestContext, Seen) {
+    placed(cx, chosen, false)
+}
+
+fn placed(
+    cx: &mut TestAppContext,
+    chosen: Chosen,
+    corner: bool,
+) -> (Entity<Host>, &mut VisualTestContext, Seen) {
     init(cx);
     let seen = Rc::new(RefCell::new(Vec::new()));
     let given = seen.clone();
     let (view, cx) = cx.add_window_view(move |_, _| Host {
+        corner,
         chosen,
         effort: None,
         seen: given,
@@ -191,18 +213,18 @@ fn choosing_the_chosen_provider_again_reports_nothing(cx: &mut TestAppContext) {
 fn a_model_without_effort_shows_none(cx: &mut TestAppContext) {
     let (_, cx, seen) = host(cx, aster());
     open(cx);
-    // The provider's first model offers none: its efforts fold away with their title.
-    let height = |cx: &mut VisualTestContext| {
-        cx.update(|window, _| window.find("picker-efforts").bounds().size.height)
+    // The provider's first model offers none: the effort column folds away with its title.
+    let width = |cx: &mut VisualTestContext| {
+        cx.update(|window, _| window.find("picker-efforts").bounds().size.width)
     };
-    let whole = height(cx);
+    let whole = width(cx);
     cx.update(|window, cx| window.click("picker-provider-cinder", cx));
     assert_eq!(
         seen.borrow().last(),
         Some(&(Chosen::Model("cinder".into(), Some("ember".into())), None))
     );
     advance(cx, PANEL / 3);
-    let midway = height(cx);
+    let midway = width(cx);
     assert!(
         px(0.) < midway && midway < whole,
         "it folds, not vanishes: {midway:?} of {whole:?}"
@@ -244,9 +266,9 @@ fn the_efforts_unfold_when_a_model_that_offers_them_is_chosen(cx: &mut TestAppCo
     assert!(!shown("picker-effort-high", cx));
     cx.update(|window, cx| window.click("picker-provider-borealis", cx));
     advance(cx, PANEL / 3);
-    let midway = cx.update(|window, _| window.find("picker-efforts").bounds().size.height);
+    let midway = cx.update(|window, _| window.find("picker-efforts").bounds().size.width);
     advance(cx, PANEL * 2);
-    let whole = cx.update(|window, _| window.find("picker-efforts").bounds().size.height);
+    let whole = cx.update(|window, _| window.find("picker-efforts").bounds().size.width);
     assert!(midway < whole, "it unfolds: {midway:?} < {whole:?}");
     assert!(shown("picker-effort-high", cx));
     click("picker-model-borealis-delta", cx);
@@ -368,4 +390,128 @@ fn the_menu_opens_and_closes_by_fading(cx: &mut TestAppContext) {
     advance(cx, HOVER * 2);
     assert!(!shown("picker-menu", cx));
     assert_eq!(pending_frames(cx), 0);
+}
+
+fn bounds(id: &str, cx: &mut VisualTestContext) -> gpui_kit::Bounds<gpui_kit::Pixels> {
+    let id = id.to_owned();
+    cx.update(|window, _| window.find(id).bounds())
+}
+
+#[gpui_kit::test]
+fn the_menu_is_three_columns_side_by_side_each_with_its_heading(cx: &mut TestAppContext) {
+    let (_, cx, _) = host(cx, aster());
+    open(cx);
+    for (id, title) in [
+        ("picker-providers-label", "Provider"),
+        ("picker-models-label", "Model"),
+        ("picker-efforts-label", "Effort"),
+    ] {
+        assert_eq!(label(id, cx).as_deref(), Some(title));
+    }
+    let (providers, models, efforts) = (
+        bounds("picker-providers-label", cx),
+        bounds("picker-models-label", cx),
+        bounds("picker-efforts-label", cx),
+    );
+    assert!(
+        providers.right() <= models.left() && models.right() <= efforts.left(),
+        "left to right: {providers:?} {models:?} {efforts:?}"
+    );
+    assert_eq!(providers.top(), models.top(), "side by side, not stacked");
+    assert_eq!(models.top(), efforts.top());
+    // Each entry sits in the column of its title, under it.
+    for (entry, heading) in [
+        ("picker-provider-borealis", providers),
+        ("picker-model-aster-spark", models),
+        ("picker-effort-low", efforts),
+    ] {
+        let at = bounds(entry, cx);
+        assert!(
+            at.left() >= heading.left() - px(12.) && at.top() >= heading.bottom(),
+            "{entry} under its heading: {at:?} {heading:?}"
+        );
+        assert!(at.left() < heading.right() + px(150.), "{entry}: {at:?}");
+    }
+    // Shorter than a stack of the three: no entry is below the tallest column's own rows.
+    let menu = bounds("picker-menu", cx);
+    assert!(menu.size.height < px(200.), "{menu:?}");
+}
+
+#[gpui_kit::test]
+fn the_menu_does_not_move_when_the_effort_column_folds_and_comes_back(cx: &mut TestAppContext) {
+    let (_, cx, _) = host(cx, aster());
+    open(cx);
+    let at = bounds("picker-providers-label", cx);
+    let menu = bounds("picker-menu", cx);
+    click("picker-provider-cinder", cx);
+    assert!(!shown("picker-effort-high", cx));
+    assert_eq!(
+        bounds("picker-providers-label", cx),
+        at,
+        "the columns that stay do not move"
+    );
+    let narrow = bounds("picker-menu", cx);
+    assert!(narrow.size.width < menu.size.width, "{narrow:?} {menu:?}");
+    assert_eq!(narrow.left(), menu.left());
+    click("picker-provider-borealis", cx);
+    assert!(shown("picker-effort-high", cx));
+    assert_eq!(bounds("picker-providers-label", cx), at);
+    assert_eq!(bounds("picker-menu", cx), menu, "it is back as it was");
+}
+
+#[gpui_kit::test]
+fn the_models_column_fades_when_the_provider_changes(cx: &mut TestAppContext) {
+    let (_, cx, _) = host(cx, aster());
+    open(cx);
+    assert_eq!(seen("picker-models-fade"), Some(1.0));
+    cx.update(|window, cx| window.click("picker-provider-borealis", cx));
+    advance(cx, HOVER / 3);
+    let midway = seen("picker-models-fade").unwrap();
+    assert!(midway < 1.0, "the new models fade in: {midway}");
+    advance(cx, HOVER * 2);
+    assert_eq!(seen("picker-models-fade"), Some(1.0));
+}
+
+#[gpui_kit::test]
+fn the_menu_never_leaves_the_window(cx: &mut TestAppContext) {
+    // In the corner of the window, as the Reply dock has it: it opens upward, and lines up with
+    // the button's right edge, though the menu is wider than the button.
+    let (_, cx, _) = placed(cx, aster(), true);
+    open(cx);
+    let (menu, button, viewport) = cx.update(|window, _| {
+        (
+            window.find("picker-menu").bounds(),
+            window.find("picker").bounds(),
+            window.viewport_size(),
+        )
+    });
+    assert!(
+        menu.left() >= px(0.) && menu.right() <= viewport.width,
+        "{menu:?} in {viewport:?}"
+    );
+    assert!(
+        menu.top() >= px(0.) && menu.bottom() <= viewport.height,
+        "{menu:?} in {viewport:?}"
+    );
+    assert!(menu.bottom() <= button.top(), "upward: {menu:?} {button:?}");
+    assert_eq!(menu.right(), button.right(), "on the button's right edge");
+    // Still so with the effort column folded: it was placed with its widest size.
+    click("picker-provider-cinder", cx);
+    let folded = bounds("picker-menu", cx);
+    assert!(folded.right() <= viewport.width && folded.bottom() <= button.top());
+    assert_eq!(folded.right(), button.right());
+}
+
+#[gpui_kit::test]
+fn a_window_narrower_than_the_menu_keeps_it_inside(cx: &mut TestAppContext) {
+    let (_, cx, _) = host(cx, aster());
+    cx.simulate_resize(size(px(400.), px(500.)));
+    cx.update(|window, cx| window.render_frame(cx));
+    open(cx);
+    let (menu, viewport) =
+        cx.update(|window, _| (window.find("picker-menu").bounds(), window.viewport_size()));
+    assert!(
+        menu.left() >= px(0.) && menu.right() <= viewport.width,
+        "{menu:?} in {viewport:?}"
+    );
 }
