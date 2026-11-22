@@ -31,6 +31,7 @@ use crate::icons::{Icon, icon};
 use crate::interact::{fade, hoverable, selectable};
 use crate::look::{Shaped as _, Surface, look};
 use crate::motion::{ENTER, HOVER, Motion, PANEL};
+use crate::reveal::changed;
 use crate::theme::{Palette, palette};
 use crate::typography::Type as _;
 
@@ -123,10 +124,12 @@ impl Shades {
 type OnChoose = Rc<dyn Fn(usize, &mut Window, &mut App) + 'static>;
 
 /// One option: what it is called and, when its name does not say it, one line.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SelectOption {
     key: SharedString,
     title: SharedString,
+    leading: Option<Icon>,
+    tint: Option<Hsla>,
     line: Option<SharedString>,
     group: Option<SharedString>,
     tone: Option<Tone>,
@@ -138,10 +141,25 @@ impl SelectOption {
         Self {
             key: key.into(),
             title: title.into(),
+            leading: None,
+            tint: None,
             line: None,
             group: None,
             tone: None,
         }
+    }
+
+    /// An icon before the title, in the list and on the field when this option is chosen: it is
+    /// `<select id>-<key>-leading` in the list and `<select id>-leading` on the field, to the tests.
+    pub fn leading(mut self, glyph: Icon) -> Self {
+        self.leading = Some(glyph);
+        self
+    }
+
+    /// The leading icon in `tint` instead of the faint ink (a machine's colour).
+    pub fn tint(mut self, tint: Hsla) -> Self {
+        self.tint = Some(tint);
+        self
     }
 
     pub fn line(mut self, line: impl Into<SharedString>) -> Self {
@@ -334,22 +352,41 @@ impl RenderOnce for Select {
         let height = f32::from(if compact { sizes.pill } else { sizes.field });
         // A pill with no width of its own is as wide as its words, which it never cuts.
         let sized = compact && self.width.is_none();
+        // The chosen option's icon fades in over HOVER when the choice changes, as a picker's label.
+        let leading_id = part(&self.id, "leading");
+        let leading = chosen.as_ref().and_then(|o| {
+            let key = o.key.clone();
+            let shown = changed(&leading_id, &key, window, cx);
+            o.leading.map(|glyph| {
+                let ink = o.tint.unwrap_or(p.faint);
+                crate::seen::note_colour(&leading_id, ink);
+                crate::seen::note(&leading_id, shown);
+                div()
+                    .flex_none()
+                    .opacity(shown)
+                    .child(icon(glyph).size(px(14. * glyph.scale())).text_color(ink))
+                    .into_any_element()
+            })
+        });
         // The words go in after the surface, whose border the hover paints.
-        let content: Vec<AnyElement> = vec![
-            measure.into_any_element(),
-            div()
-                .when(!sized, |d| d.flex_1().min_w_0().overflow_hidden())
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .children(chosen.as_ref().map(|o| o.title.clone()))
+        let content: Vec<AnyElement> = [measure.into_any_element()]
+            .into_iter()
+            .chain(leading)
+            .chain([
+                div()
+                    .when(!sized, |d| d.flex_1().min_w_0().overflow_hidden())
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .children(chosen.as_ref().map(|o| o.title.clone()))
+                    .into_any_element(),
+                if compact {
+                    icon(Icon::Chevron).size(px(10.)).text_color(pill.ink)
+                } else {
+                    icon(Icon::Choose).size(px(12.)).text_color(p.faint)
+                }
                 .into_any_element(),
-            if compact {
-                icon(Icon::Chevron).size(px(10.)).text_color(pill.ink)
-            } else {
-                icon(Icon::Choose).size(px(12.)).text_color(p.faint)
-            }
-            .into_any_element(),
-        ];
+            ])
+            .collect();
         let mut field = div()
             .id(self.id.clone())
             .aria_label(chosen.as_ref().map(|o| o.title.clone()).unwrap_or_default())
@@ -483,10 +520,21 @@ impl RenderOnce for Select {
                 // The words go in after the fill, which the hover paints.
                 let mut content: Vec<AnyElement> = vec![
                     div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
                         .text_size(px(13.))
                         .line_height(px(18.))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(p.text)
+                        .children(option.leading.map(|glyph| {
+                            let ink = option.tint.unwrap_or(p.faint);
+                            crate::seen::note_colour(
+                                &part(&self.id, &format!("{}-leading", option.key)),
+                                ink,
+                            );
+                            icon(glyph).size(px(14. * glyph.scale())).text_color(ink)
+                        }))
                         .child(option.title.clone())
                         .into_any_element(),
                 ];
