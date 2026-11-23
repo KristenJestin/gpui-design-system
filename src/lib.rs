@@ -31,6 +31,7 @@ pub mod layer;
 pub mod lines;
 pub mod listing;
 pub mod look;
+pub mod machine_mark;
 pub mod menu;
 pub mod modal;
 pub mod model_choice;
@@ -93,6 +94,7 @@ pub use lines::{
 };
 pub use listing::{Item, Listing, Placement};
 pub use look::{Corners, Fonts, Look, Shadow, Sizes, look};
+pub use machine_mark::{MachineMark, MachineState, MarkSize};
 pub use menu::Menu;
 pub use modal::Modal;
 pub use model_choice::{Chosen, ModelChoice, ModelEntry, ModelPicker};
