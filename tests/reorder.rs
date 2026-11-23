@@ -603,7 +603,7 @@ fn a_group_that_is_added_unfolds_and_fades_in(cx: &mut TestAppContext) {
         this.groups.push(Group {
             key: "h",
             open: true,
-            rows: vec!["y"],
+            rows: Vec::new(),
         })
     });
     advance(cx, FRAME);
@@ -699,6 +699,35 @@ fn a_row_moved_between_groups_from_outside_slides(cx: &mut TestAppContext) {
     advance(cx, PANEL * 2);
     assert_eq!(top("b", cx), x + PITCH);
     assert_eq!(top("a", cx), a + PITCH, "the group grew by a row");
+}
+
+#[gpui_kit::test]
+fn a_row_moved_into_a_group_that_comes_slides_while_the_heading_unfolds(cx: &mut TestAppContext) {
+    let (view, cx) = host(&[("g", true, &["x"])], &["a", "b"], false, cx);
+    let before = top("b", cx);
+
+    change(&view, cx, |this| {
+        this.loose.retain(|k| *k != "b");
+        this.groups.push(Group {
+            key: "h",
+            open: true,
+            rows: vec!["b"],
+        })
+    });
+    advance(cx, FRAME);
+    let first = top("b", cx);
+    advance(cx, PANEL / 3);
+    let mid = top("b", cx);
+    advance(cx, PANEL * 2);
+    let end = top("b", cx);
+    assert!(end < before, "the row moved up into the group");
+    assert!(
+        before - first < (before - end) / 2.,
+        "no jump at once: {before} -> {first} -> {end}"
+    );
+    assert!(end < mid && mid < first, "it is on its way: {mid}");
+    assert!(shown("list-group-h-header", cx));
+    assert_eq!(pending_frames(cx), 0, "nothing moves at rest");
 }
 
 #[gpui_kit::test]

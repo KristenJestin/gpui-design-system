@@ -13,7 +13,8 @@
 //!
 //! A group that the caller adds unfolds and fades in, one it removes folds away and fades out
 //! (its heading is kept for that, with its name and count), and when the caller changes the order
-//! of the groups or the group of a row from outside, what moved slides to its new place.
+//! of the groups or the group of a row from outside, what moved slides to its new place. A row
+//! that is new to the list is the caller's to bring in (a row that unfolds), in a group or not.
 //!
 //! The drag is the list's own: the pointer is followed at the window's level (not only over the
 //! list), and while a row is held a transparent sheet lies over the window so that nothing under
@@ -484,8 +485,9 @@ struct Entry {
 }
 
 /// The first frame of a change the caller made: `new` as it is drawn then, with a group that left
-/// still there (its heading alone), and without what comes (a group, a row), which the fold and the
-/// caller's own motion bring in: only what stays is placed, so that what slides is what moved.
+/// still there (its heading alone), and without the rows that come, which the caller's own motion
+/// brings in: only what stays is placed, so that what slides is what moved. A heading that comes
+/// is not there yet (the caller gives its height as nothing).
 fn first_frame(old: &Shape, new: &Shape, entries: &[Entry]) -> Shape {
     let kept = |rows: &[SharedString]| -> Vec<SharedString> {
         rows.iter().filter(|r| old.holds_row(r)).cloned().collect()
@@ -502,7 +504,7 @@ fn first_frame(old: &Shape, new: &Shape, entries: &[Entry]) -> Shape {
                 });
             }
             let group = new.groups.iter().find(|g| g.key == *key)?;
-            old.holds_group(key).then(|| GroupShape {
+            Some(GroupShape {
                 key: key.clone(),
                 open: group.open,
                 rows: kept(&group.rows),
@@ -780,7 +782,11 @@ impl State {
         if outside {
             let first = first_frame(&old, &self.shape, &self.entries);
             let value = |unit: &Unit| self.motions.get(unit).map_or(0., |m| m.value(now));
-            let starts = carried(&old, &first, &self.heights.borrow(), &value);
+            let mut heights = self.heights.borrow().clone();
+            for key in &entering {
+                heights.insert(Unit::Header(key.clone()), 0.);
+            }
+            let starts = carried(&old, &first, &heights, &value);
             for (unit, start) in starts {
                 self.motions.insert(unit, Motion::settled(start));
             }
@@ -1214,6 +1220,9 @@ impl RenderOnce for Reorderable {
                 cx,
             );
 
+            // The heading unfolds as it comes and folds away as it leaves, what is below with it.
+            let head = presence(part(&gid, "presence"), !leaving, head)
+                .entering(plan.entering.contains(&key));
             let rows: Vec<AnyElement> = rows
                 .into_iter()
                 .map(|(row, content)| row_frame(row, content, cx))
@@ -1230,15 +1239,7 @@ impl RenderOnce for Reorderable {
                 .child(head)
                 .child(body)
                 .into_any_element();
-            // It unfolds as it comes and folds away as it leaves, the rows below with it.
-            column = column.child(
-                presence(
-                    part(&gid, "presence"),
-                    !leaving,
-                    placed(gid, &block_unit, &plan, block, cx),
-                )
-                .entering(plan.entering.contains(&key)),
-            );
+            column = column.child(placed(gid, &block_unit, &plan, block, cx));
         }
         for (key, content) in rows {
             column = column.child(row_frame(key, content, cx));
