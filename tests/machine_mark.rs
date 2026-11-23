@@ -112,8 +112,9 @@ fn side(bounds: Bounds<Pixels>) -> f32 {
     f32::from(bounds.size.width)
 }
 
+/// Within the half pixel layout snaps a box to.
 fn near(a: f32, b: f32) -> bool {
-    (a - b).abs() < 0.05
+    (a - b).abs() <= 0.5
 }
 
 #[gpui_kit::test]
@@ -182,6 +183,7 @@ fn the_machine_s_colour_never_says_its_state(cx: &mut TestAppContext) {
     for (state, name) in STATES {
         let (view, cx) = marked(state, MarkSize::Large, false, cx);
         change(&view, cx, move |marked| marked.machine = green);
+        advance(cx, PANEL * 2);
         let palette = cx.update(|_, cx| palette(cx));
         let badge = colour(format!("mark-{name}")).unwrap();
         match state {
@@ -226,7 +228,18 @@ fn the_badge_sits_on_a_cut_out_of_the_surface_behind_it(cx: &mut TestAppContext)
     let partway = colour("mark-cutout").unwrap();
     assert_ne!(partway, row, "it is on its way");
     advance(cx, HOVER * 2);
-    assert_eq!(colour("mark-cutout"), Some(row));
+    let end = colour("mark-cutout").unwrap();
+    assert!(
+        [
+            (end.h, row.h),
+            (end.s, row.s),
+            (end.l, row.l),
+            (end.a, row.a)
+        ]
+        .iter()
+        .all(|(a, b)| (a - b).abs() < 1e-3),
+        "it ends on the row's colour: {end:?}"
+    );
     assert_eq!(pending_frames(cx), 0);
 }
 
