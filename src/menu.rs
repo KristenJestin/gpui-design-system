@@ -155,7 +155,12 @@ impl Menu {
         reason: Option<SharedString>,
         cx: &mut Context<Self>,
     ) {
-        let _ = (id, reason, cx);
+        if let Some(entry) = self.entries.iter_mut().find(|entry| &entry.id == id)
+            && entry.disabled != reason
+        {
+            entry.disabled = reason;
+            cx.notify();
+        }
     }
 
     /// A destructive entry, "Remove…": in the failure colour, after the others and a line,
