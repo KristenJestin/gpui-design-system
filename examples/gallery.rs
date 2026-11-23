@@ -17,16 +17,16 @@ use std::path::PathBuf;
 use gpui_design_system::look::Role;
 use gpui_design_system::{
     Badge, Button, Card, ChipOption, ChipPicker, Corners, Drawer, Fold, Fonts, Icon, Icons,
-    Identity, ListRow, Look, Piece, PulsingLabel, QrCode, RemovableChip, Shadow, Side, Sizes,
-    Token, TokenField, TokenLook, TokenText, TreeRow, Type, enter, follow_theme, icon, meta,
-    palette, section_label, tree_children, typography,
+    Identity, ListRow, Look, MachineMark, MachineState, MarkSize, Piece, PulsingLabel, QrCode,
+    RemovableChip, Shadow, Side, Sizes, Token, TokenField, TokenLook, TokenText, TreeRow, Type,
+    enter, follow_theme, icon, meta, palette, section_label, tree_children, typography,
 };
 use gpui_kit::base::input::InputState;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     AnyElement, App, AppContext as _, Bounds, Context, Entity, Focusable as _, FontWeight, Hsla,
     IntoElement, ParentElement, Render, SharedString, Styled, Window, WindowBounds, WindowOptions,
-    div, px, size,
+    div, hsla, px, size,
 };
 
 fn main() {
@@ -611,6 +611,56 @@ impl Render for Gallery {
                 }),
             );
 
+        let machine_marks = {
+            let states = [
+                (MachineState::Here, "here", "this machine"),
+                (MachineState::Online, "online", "online"),
+                (MachineState::Offline, "offline", "offline since 09:33"),
+                (MachineState::Update, "update", "needs an update"),
+                (MachineState::Unknown, "unknown", "not tried yet"),
+            ];
+            let sizes = [
+                (MarkSize::Large, "16"),
+                (MarkSize::Medium, "14"),
+                (MarkSize::Small, "12"),
+            ];
+            let machine = hsla(0.5, 0.65, 0.55, 1.0);
+            let row = |size: MarkSize, px_size: &'static str| {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(14.))
+                    .child(
+                        div()
+                            .w(px(24.))
+                            .mono(9.5)
+                            .text_color(p.faint)
+                            .child(px_size),
+                    )
+                    .children(states.iter().map(|&(state, name, words)| {
+                        div().w(px(52.)).child(
+                            MachineMark::new(
+                                format!("mark-{px_size}-{name}"),
+                                Icon::Lucide("server"),
+                                machine,
+                                state,
+                                format!("server · {words}"),
+                            )
+                            .size(size),
+                        )
+                    }))
+            };
+            panel("Machine marks", cx)
+                .child(
+                    div()
+                        .flex()
+                        .pl(px(24.))
+                        .children(states.iter().map(|&(_, name, _)| {
+                            div().w(px(52.)).mono(9.5).text_color(p.faint).child(name)
+                        })),
+                )
+                .children(sizes.map(|(size, px_size)| row(size, px_size)))
+        };
         let qr_code = panel("QR code", cx).child(
             QrCode::new(
                 "g-qr",
@@ -648,7 +698,8 @@ impl Render for Gallery {
                             .flex()
                             .flex_col()
                             .gap(px(18.))
-                            .child(chips),
+                            .child(chips)
+                            .child(machine_marks),
                     )
                     .child(
                         div()
