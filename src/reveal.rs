@@ -310,6 +310,7 @@ pub fn presence(id: impl Into<ElementId>, present: bool, content: impl IntoEleme
     Presence {
         id: id.into(),
         present,
+        entering: false,
         gap: 0.0,
         space: 0.0,
         content: content.into_any_element(),
@@ -320,12 +321,21 @@ pub fn presence(id: impl Into<ElementId>, present: bool, content: impl IntoEleme
 pub struct Presence {
     id: ElementId,
     present: bool,
+    /// Present from its first frame but not shown yet: it unfolds as it comes.
+    entering: bool,
     gap: f32,
     space: f32,
     content: AnyElement,
 }
 
 impl Presence {
+    /// A block that is new to a view that already runs: it unfolds from its first frame, where
+    /// [`presence`] alone would show it at once (its first frame is "simply there").
+    pub(crate) fn entering(mut self, entering: bool) -> Self {
+        self.entering = entering;
+        self
+    }
+
     /// The gap the parent flex puts between its children, which comes and goes with the block.
     /// It is the parent's, not the block's: a parent without that gap draws nothing there, and a
     /// parent with another one jumps. Prefer [`space`](Self::space).
@@ -349,8 +359,9 @@ impl RenderOnce for Presence {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let key = ElementId::NamedChild(Arc::new(self.id.clone()), "presence".into());
         let open = self.present;
+        let shown = open && !self.entering;
         let state = window.use_keyed_state(key, cx, move |_, _| {
-            Shown::new(Motion::settled(if open { 1.0 } else { 0.0 }))
+            Shown::new(Motion::settled(if shown { 1.0 } else { 0.0 }))
         });
         let at = drive(&state, open, window, cx);
         shown_frame(

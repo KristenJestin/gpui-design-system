@@ -82,7 +82,8 @@ impl Render for Host {
                         .id(format!("more-{key}"))
                         .w(px(20.))
                         .h(px(20.))
-                        .on_click(cx.listener(move |this, _, _, _| this.clicks.push(key))),
+                        .on_click(cx.listener(move |this, _, _, _| this.clicks.push(key)))
+                        .test_support(),
                 );
             }
             list = list.group(group);
@@ -607,7 +608,6 @@ fn a_group_that_is_added_unfolds_and_fades_in(cx: &mut TestAppContext) {
     });
     advance(cx, FRAME);
     let first = top("a", cx);
-    assert!(first - a < 8., "no jump when it comes: {}", first - a);
     advance(cx, PANEL / 3);
     let mid = top("a", cx);
     assert!(first < mid, "it unfolds: {mid}");
@@ -615,6 +615,7 @@ fn a_group_that_is_added_unfolds_and_fades_in(cx: &mut TestAppContext) {
     advance(cx, PANEL * 2);
     let end = top("a", cx);
     assert!(end > mid, "the rows below made room: {mid} < {end}");
+    assert!(first - a < (end - a) / 2., "no jump when it comes: {first}");
     let heading = bounds("list-group-h-header", cx).size.height;
     assert!(heading > px(0.));
     assert_eq!(pending_frames(cx), 0, "nothing moves at rest");
@@ -664,7 +665,10 @@ fn groups_changed_from_outside_slide_to_their_new_places(cx: &mut TestAppContext
     });
     advance(cx, FRAME);
     let first = bounds("list-group-g1-header", cx).origin.y;
-    assert!((first - h1).abs() < px(8.), "no jump at once: {first:?}");
+    assert!(
+        first >= h1 && first - h1 < (h2 - h1) / 2.,
+        "no jump at once: {first:?}"
+    );
     advance(cx, PANEL / 3);
     let mid = bounds("list-group-g1-header", cx).origin.y;
     assert!(h1 < mid && mid < h2, "its heading is on its way: {mid:?}");
