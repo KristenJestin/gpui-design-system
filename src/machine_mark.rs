@@ -22,6 +22,7 @@ use crate::button::tipped;
 use crate::icons::{Icon, icon};
 use crate::ids::part;
 use crate::interact::{fade, tint};
+use crate::look::{Radius, Shaped as _};
 use crate::motion::{HOVER, PANEL, SWAP_FROM};
 use crate::theme::{Palette, palette};
 
@@ -216,7 +217,7 @@ impl RenderOnce for MachineMark {
                     .top(px(-CUT))
                     .left(px(-CUT))
                     .size(px(badge + 2. * CUT))
-                    .rounded_full()
+                    .corners(Radius::Full)
                     .bg(cutout)
                     .test_support(),
             )
@@ -257,22 +258,26 @@ fn shape_frame(id: ElementId, state: MachineState, badge: f32, t: f32, p: &Palet
         .items_center()
         .justify_center();
     match state {
-        MachineState::Online => frame.child(div().size(relative(0.88)).rounded_full().bg(colour)),
-        MachineState::Offline => frame.child(
+        MachineState::Online => {
+            frame.child(div().size(relative(0.88)).corners(Radius::Full).bg(colour))
+        }
+        MachineState::Offline => frame.child(painted(move |at, unit, window| {
+            paint_ring(at, unit, colour, false, window)
+        })),
+        MachineState::Update => frame.child(
             div()
-                .size(relative(0.8))
-                .rounded_full()
-                .border(px(badge * scale * 0.15))
-                .border_color(colour),
+                .size_full()
+                .corners(Radius::Full)
+                .bg(colour)
+                .child(painted(move |at, unit, window| {
+                    paint_arrow(at, unit, ink, window)
+                })),
         ),
-        MachineState::Update => frame.child(div().size_full().rounded_full().bg(colour).child(
-            painted(move |at, unit, window| paint_arrow(at, unit, ink, window)),
-        )),
         MachineState::Here => frame.child(painted(move |at, unit, window| {
             paint_house(at, unit, colour, window)
         })),
         MachineState::Unknown => frame.child(painted(move |at, unit, window| {
-            paint_dashes(at, unit, colour, window)
+            paint_ring(at, unit, colour, true, window)
         })),
     }
     .test_support()
@@ -326,9 +331,10 @@ fn paint_arrow(origin: Point<Pixels>, unit: f32, colour: Hsla, window: &mut Wind
     }
 }
 
-/// A ring of dashes: a circle of 3.5 units as a polygon, stroked 1.5 units wide with a dash of
-/// 1.5 and a gap of 1.7.
-fn paint_dashes(origin: Point<Pixels>, unit: f32, colour: Hsla, window: &mut Window) {
+/// A ring of 3.5 units, stroked 1.5 units wide: whole, or as dashes of 1.5 units with gaps of
+/// 1.7. A polygon of many sides, since a path has no circle of its own; a ring is drawn here and
+/// not as a bordered box so that it keeps its thickness in a look with a thicker border.
+fn paint_ring(origin: Point<Pixels>, unit: f32, colour: Hsla, dashed: bool, window: &mut Window) {
     const POINTS: usize = 48;
     let ring: Vec<_> = (0..POINTS)
         .map(|i| {
@@ -336,10 +342,12 @@ fn paint_dashes(origin: Point<Pixels>, unit: f32, colour: Hsla, window: &mut Win
             at(origin, unit, 5.0 + 3.5 * turn.cos(), 5.0 + 3.5 * turn.sin())
         })
         .collect();
-    let mut dashes =
-        PathBuilder::stroke(px(1.5 * unit)).dash_array(&[px(1.5 * unit), px(1.7 * unit)]);
-    dashes.add_polygon(&ring, true);
-    if let Ok(path) = dashes.build() {
+    let mut ring_path = PathBuilder::stroke(px(1.5 * unit));
+    if dashed {
+        ring_path = ring_path.dash_array(&[px(1.5 * unit), px(1.7 * unit)]);
+    }
+    ring_path.add_polygon(&ring, true);
+    if let Ok(path) = ring_path.build() {
         window.paint_path(path, colour);
     }
 }
