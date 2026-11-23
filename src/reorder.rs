@@ -11,12 +11,17 @@
 //! callback, so that the next frame draws the new one; a move it does not apply slides back.
 //! The groups come first, then the rows outside any group, and a group is not dragged below them.
 //!
+//! A group that the caller adds unfolds and fades in, one it removes folds away and fades out
+//! (its heading is kept for that, with its name and count), and when the caller changes the order
+//! of the groups or the group of a row from outside, what moved slides to its new place. A row
+//! that is new to the list is the caller's to bring in (a row that unfolds), in a group or not.
+//!
 //! The drag is the list's own: the pointer is followed at the window's level (not only over the
 //! list), and while a row is held a transparent sheet lies over the window so that nothing under
 //! the pointer hovers, nor takes the click that ends the drag.
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
@@ -62,6 +67,7 @@ pub struct ReorderGroup {
     title: SharedString,
     open: bool,
     mark: Option<AnyElement>,
+    trailing: Option<AnyElement>,
     rows: Vec<(SharedString, AnyElement)>,
 }
 
@@ -73,6 +79,7 @@ impl ReorderGroup {
             title: title.into(),
             open: true,
             mark: None,
+            trailing: None,
             rows: Vec::new(),
         }
     }
@@ -87,6 +94,13 @@ impl ReorderGroup {
     /// unfolds and fades in as the group folds, and folds away as it opens.
     pub fn mark(mut self, mark: impl IntoElement) -> Self {
         self.mark = Some(mark.into_any_element());
+        self
+    }
+
+    /// A button of its own at the right of the heading (a menu): a press on it neither starts a
+    /// drag nor folds the group.
+    pub fn trailing(mut self, element: impl IntoElement) -> Self {
+        self.trailing = Some(element.into_any_element());
         self
     }
 
@@ -197,6 +211,8 @@ type Heights = HashMap<Unit, f32>;
 
 struct Placed {
     unit: Unit,
+    /// The group it is drawn in.
+    group: Option<SharedString>,
     top: f32,
     height: f32,
 }
@@ -231,10 +247,11 @@ impl Shape {
     fn layout(&self, heights: &Heights) -> Layout {
         let mut layout = Layout::default();
         let mut y = 0.;
-        let put = |layout: &mut Layout, unit: Unit, y: &mut f32| {
+        let put = |layout: &mut Layout, unit: Unit, group: Option<&SharedString>, y: &mut f32| {
             let h = height(heights, &unit);
             layout.items.push(Placed {
                 unit,
+                group: group.cloned(),
                 top: *y,
                 height: h,
             });
@@ -242,10 +259,20 @@ impl Shape {
         };
         for group in &self.groups {
             let top = y;
-            put(&mut layout, Unit::Header(group.key.clone()), &mut y);
+            put(
+                &mut layout,
+                Unit::Header(group.key.clone()),
+                Some(&group.key),
+                &mut y,
+            );
             if group.open {
                 for row in &group.rows {
-                    put(&mut layout, Unit::Row(row.clone()), &mut y);
+                    put(
+                        &mut layout,
+                        Unit::Row(row.clone()),
+                        Some(&group.key),
+                        &mut y,
+                    );
                 }
             }
             layout.blocks.push(Span {
@@ -255,9 +282,20 @@ impl Shape {
             });
         }
         for row in &self.loose {
-            put(&mut layout, Unit::Row(row.clone()), &mut y);
+            put(&mut layout, Unit::Row(row.clone()), None, &mut y);
         }
         layout
+    }
+
+    /// Whether the same rows are in the same groups and places, folds apart.
+    fn same_structure(&self, other: &Shape) -> bool {
+        self.loose == other.loose
+            && self.groups.len() == other.groups.len()
+            && self
+                .groups
+                .iter()
+                .zip(&other.groups)
+                .all(|(a, b)| a.key == b.key && a.rows == b.rows)
     }
 
     fn holds_row(&self, row: &str) -> bool {
@@ -431,6 +469,98 @@ fn outcome(shape: &Shape, heights: &Heights, gap: f32, held: &Unit, dy: f32) -> 
     }
 }
 
+/// What a group that came or went was: its heading, drawn again while it folds away.
+#[derive(Clone)]
+struct Memo {
+    key: SharedString,
+    title: SharedString,
+    count: usize,
+    open: bool,
+}
+
+/// A group of the list or one that left and is folding away, in the order they are drawn.
+struct Entry {
+    memo: Memo,
+    gone: Option<Instant>,
+}
+
+/// The first frame of a change the caller made: `new` as it is drawn then, with a group that left
+/// still there (its heading alone), and without the rows that come, which the caller's own motion
+/// brings in: only what stays is placed, so that what slides is what moved. A heading that comes
+/// is not there yet (the caller gives its height as nothing).
+fn first_frame(old: &Shape, new: &Shape, entries: &[Entry]) -> Shape {
+    let kept = |rows: &[SharedString]| -> Vec<SharedString> {
+        rows.iter().filter(|r| old.holds_row(r)).cloned().collect()
+    };
+    let groups = entries
+        .iter()
+        .filter_map(|entry| {
+            let key = &entry.memo.key;
+            if entry.gone.is_some() {
+                return Some(GroupShape {
+                    key: key.clone(),
+                    open: false,
+                    rows: Vec::new(),
+                });
+            }
+            let group = new.groups.iter().find(|g| g.key == *key)?;
+            Some(GroupShape {
+                key: key.clone(),
+                open: group.open,
+                rows: kept(&group.rows),
+            })
+        })
+        .collect();
+    Shape {
+        groups,
+        loose: kept(&new.loose),
+    }
+}
+
+/// Where each unit starts from, as how far it is from its place, when the caller changed the list
+/// from outside: so that it is drawn where it was and slides to where it goes. `now` is the
+/// offsets it has now, which a slide still running goes on from.
+fn carried(
+    old: &Shape,
+    new: &Shape,
+    heights: &Heights,
+    now: &dyn Fn(&Unit) -> f32,
+) -> HashMap<Unit, f32> {
+    let was = old.layout(heights);
+    let will = new.layout(heights);
+    let mut starts: HashMap<Unit, f32> = HashMap::new();
+    for block in &will.blocks {
+        if let Some(prev) = was.blocks.iter().find(|b| b.key == block.key) {
+            let unit = Unit::Block(block.key.clone());
+            starts.insert(unit.clone(), prev.top + now(&unit) - block.top);
+        }
+    }
+    let mut items = HashMap::new();
+    for item in &will.items {
+        let Some(prev) = was.item(&item.unit) else {
+            continue;
+        };
+        let of = |group: &Option<SharedString>, starts: &HashMap<Unit, f32>| {
+            group.as_ref().map_or(0., |g| {
+                let unit = Unit::Block(g.clone());
+                starts.get(&unit).copied().unwrap_or_else(|| now(&unit))
+            })
+        };
+        let from = prev.top + now(&item.unit) + group_offset(&prev.group, now);
+        items.insert(
+            item.unit.clone(),
+            from - item.top - of(&item.group, &starts),
+        );
+    }
+    starts.extend(items);
+    starts.retain(|unit, start| (*start - now(unit)).abs() > 0.5);
+    starts
+}
+
+fn group_offset(group: &Option<SharedString>, now: &dyn Fn(&Unit) -> f32) -> f32 {
+    group.as_ref().map_or(0., |g| now(&Unit::Block(g.clone())))
+}
+
 // ── What the list remembers between frames ─────────────────────────────────────────────────────
 
 #[derive(Clone)]
@@ -455,6 +585,10 @@ struct Callbacks {
 
 struct State {
     focus: FocusHandle,
+    /// Whether a frame was drawn: what is there then is simply there, what comes later unfolds.
+    started: bool,
+    /// The groups drawn last, and those that left and are still folding away.
+    entries: Vec<Entry>,
     shape: Shape,
     gap: f32,
     callbacks: Callbacks,
@@ -475,6 +609,10 @@ struct State {
 
 /// What a frame draws.
 struct Plan {
+    /// The groups in the order they are drawn, with those that left folding away.
+    groups: Vec<(Memo, bool)>,
+    /// The groups that came since the last frame.
+    entering: HashSet<SharedString>,
     offsets: HashMap<Unit, f32>,
     held: Option<(Unit, f32)>,
     lifted: Option<Unit>,
@@ -501,6 +639,8 @@ impl State {
     fn new(focus: FocusHandle) -> Self {
         Self {
             focus,
+            started: false,
+            entries: Vec::new(),
             shape: Shape::default(),
             gap: 0.,
             callbacks: Callbacks::default(),
@@ -566,17 +706,61 @@ impl State {
         self.slot_fade.animate(1., HOVER, now, reduce);
     }
 
+    /// The groups now, in order, and those that came: a group that left stays where it was while it
+    /// folds away (over [`PANEL`]), after the nearest group before it that stayed.
+    fn groups_now(
+        &mut self,
+        memos: Vec<Memo>,
+        now: Instant,
+        reduce: bool,
+    ) -> (Vec<Entry>, HashSet<SharedString>) {
+        let mut old = std::mem::take(&mut self.entries);
+        old.retain(|e| {
+            e.gone
+                .is_none_or(|at| !reduce && now.saturating_duration_since(at) < PANEL)
+        });
+        let entering = memos
+            .iter()
+            .filter(|m| self.started && !old.iter().any(|e| e.memo.key == m.key))
+            .map(|m| m.key.clone())
+            .collect();
+        let mut after: HashMap<Option<SharedString>, Vec<Entry>> = HashMap::new();
+        let mut before = None;
+        for mut entry in old {
+            if memos.iter().any(|m| m.key == entry.memo.key) {
+                before = Some(entry.memo.key.clone());
+                continue;
+            }
+            if entry.gone.is_none() {
+                if reduce {
+                    continue;
+                }
+                entry.gone = Some(now);
+            }
+            after.entry(before.clone()).or_default().push(entry);
+        }
+        let mut entries = after.remove(&None).unwrap_or_default();
+        for memo in memos {
+            let key = Some(memo.key.clone());
+            entries.push(Entry { memo, gone: None });
+            entries.extend(after.remove(&key).unwrap_or_default());
+        }
+        (entries, entering)
+    }
+
     /// The frame to draw: moves what moves toward where it goes, and says whether it still runs.
     fn plan(
         &mut self,
         shape: Shape,
+        memos: Vec<Memo>,
         gap: f32,
         callbacks: Callbacks,
         now: Instant,
         reduce: bool,
     ) -> (Plan, bool) {
         let accepted = self.pending.as_ref().map(|p| p.before != shape);
-        self.shape = shape;
+        let dropped = self.pending.is_some();
+        let old = std::mem::replace(&mut self.shape, shape);
         self.gap = gap;
         self.callbacks = callbacks;
         // What is held is gone (the caller removed it): there is nothing left to follow.
@@ -590,6 +774,24 @@ impl State {
                 self.let_go(now, reduce);
             }
         }
+        let (entries, entering) = self.groups_now(memos, now, reduce);
+        self.entries = entries;
+        // The caller changed the list from outside, not by a drop: what moved starts where it was.
+        let outside =
+            self.started && !dropped && self.drag.is_none() && !old.same_structure(&self.shape);
+        if outside {
+            let first = first_frame(&old, &self.shape, &self.entries);
+            let value = |unit: &Unit| self.motions.get(unit).map_or(0., |m| m.value(now));
+            let mut heights = self.heights.borrow().clone();
+            for key in &entering {
+                heights.insert(Unit::Header(key.clone()), 0.);
+            }
+            let starts = carried(&old, &first, &heights, &value);
+            for (unit, start) in starts {
+                self.motions.insert(unit, Motion::settled(start));
+            }
+        }
+        self.started = true;
         if let Some(pending) = self.pending.take() {
             // The caller applied the move: every unit is now in the place it was going to, so
             // what is left to travel is what it still was from there. Refused, it goes back from
@@ -631,7 +833,9 @@ impl State {
             }
         }
 
-        let running = self.motions.values().any(|m| m.is_running(now))
+        let leaving = self.entries.iter().any(|e| e.gone.is_some());
+        let running = leaving
+            || self.motions.values().any(|m| m.is_running(now))
             || self.lift.is_running(now)
             || self.slot_top.is_running(now)
             || self.slot_fade.is_running(now);
@@ -655,6 +859,12 @@ impl State {
         let slot =
             (slot_fade > 0.).then(|| (self.slot_top.value(now), self.slot_height, slot_fade));
         let plan = Plan {
+            groups: self
+                .entries
+                .iter()
+                .map(|e| (e.memo.clone(), e.gone.is_some()))
+                .collect(),
+            entering,
             offsets,
             held: self.drag.as_ref().map(|d| (d.unit.clone(), Self::dy(d))),
             lifted: self.lifted.clone(),
@@ -832,9 +1042,19 @@ impl RenderOnce for Reorderable {
             });
         let now = cx.background_executor().now();
         let reduce = cx.reduce_motion();
+        let memos = groups
+            .iter()
+            .map(|g| Memo {
+                key: g.key.clone(),
+                title: g.title.clone(),
+                count: g.rows.len(),
+                open: g.open,
+            })
+            .collect();
         let (plan, running) = state.update(cx, |s, _| {
             s.plan(
                 shape,
+                memos,
                 gap,
                 Callbacks {
                     move_row: on_move_row,
@@ -888,13 +1108,20 @@ impl RenderOnce for Reorderable {
             });
         }
 
-        for group in groups {
-            let key = group.key.clone();
+        let mut live: HashMap<SharedString, ReorderGroup> =
+            groups.into_iter().map(|g| (g.key.clone(), g)).collect();
+        for (memo, leaving) in &plan.groups {
+            let Memo {
+                key,
+                title,
+                count,
+                open,
+            } = memo.clone();
+            // A group that left has its heading alone, folding away.
+            let group = live.remove(&key);
             let gid = part(&id, &format!("group-{key}"));
             let block_unit = Unit::Block(key.clone());
             let header_unit = Unit::Header(key.clone());
-            let count = group.rows.len();
-            let open = group.open;
             let hid = part(&gid, "header");
 
             let toggle = on_toggle.clone();
@@ -911,30 +1138,37 @@ impl RenderOnce for Reorderable {
                 .flex()
                 .items_center()
                 .gap(space::SM)
-                .cursor_pointer()
-                .on_mouse_down(MouseButton::Left, move |event, _, cx| {
-                    press(&drag_state, drag_unit.clone(), event.position, cx)
-                })
-                .on_click(move |_, window, cx| {
-                    if let Some(toggle) = &toggle {
-                        toggle(&toggled, !open, window, cx);
-                    }
-                })
-                .child(chevron(part(&gid, "chevron"), open, window, cx));
-            if let Some(mark) = group.mark {
+                .cursor_pointer();
+            if !leaving {
+                header = header
+                    .on_mouse_down(MouseButton::Left, move |event, _, cx| {
+                        press(&drag_state, drag_unit.clone(), event.position, cx)
+                    })
+                    .on_click(move |_, window, cx| {
+                        if let Some(toggle) = &toggle {
+                            toggle(&toggled, !open, window, cx);
+                        }
+                    });
+            }
+            let mut header = header.child(chevron(part(&gid, "chevron"), open, window, cx));
+            let (mark, trailing, rows) = match group {
+                Some(g) => (g.mark, g.trailing, g.rows),
+                None => (None, None, Vec::new()),
+            };
+            if let Some(mark) = mark {
                 header =
                     header.children(unfolding_mark(part(&gid, "mark"), mark, !open, window, cx));
             }
-            let header = header
+            let mut header = header
                 .child(
                     div()
                         .id(part(&gid, "title"))
-                        .aria_label(group.title.clone())
+                        .aria_label(title.clone())
                         .flex_none()
                         .mono(11.)
                         .font_weight(FontWeight::MEDIUM)
                         .whitespace_nowrap()
-                        .child(group.title.to_uppercase())
+                        .child(title.to_uppercase())
                         .test_support(),
                 )
                 .child(
@@ -946,6 +1180,19 @@ impl RenderOnce for Reorderable {
                         .child(count.to_string())
                         .test_support(),
                 );
+            if let Some(trailing) = trailing {
+                // Its own press: the heading's drag and fold are not its business.
+                header = header.child(
+                    div()
+                        .id(part(&gid, "trailing"))
+                        .flex_none()
+                        .ml_auto()
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .child(trailing)
+                        .test_support(),
+                );
+            }
             // The group a held row would go into says so.
             let into = fade(
                 part(&hid, "into"),
@@ -973,8 +1220,10 @@ impl RenderOnce for Reorderable {
                 cx,
             );
 
-            let rows: Vec<AnyElement> = group
-                .rows
+            // The heading unfolds as it comes and folds away as it leaves, what is below with it.
+            let head = presence(part(&gid, "presence"), !leaving, head)
+                .entering(plan.entering.contains(&key));
+            let rows: Vec<AnyElement> = rows
                 .into_iter()
                 .map(|(row, content)| row_frame(row, content, cx))
                 .collect();
