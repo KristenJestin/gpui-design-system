@@ -268,6 +268,37 @@ it does not scan.
   at 53 modules. A text over 2331 bytes draws nothing at all: no plate, no label, no unfolding.
 - The encoder is the `qrcodegen` crate (MIT).
 
+## A machine mark
+
+`MachineMark::new(id, icon, colour, state, label)` is a machine's own icon in its own colour with a
+small badge on its bottom-right corner, for an application that shows several machines side by
+side. The icon and its colour are the application's and never change with the state: the state is
+the badge's **shape**, so it never relies on the machine's colour.
+
+| `MachineState` | badge | icon |
+|---|---|---|
+| `Here` | a solid house | the machine's colour |
+| `Online` | a filled green dot | the machine's colour |
+| `Offline` | a hollow ring | greyed |
+| `Update` | an amber dot with an up arrow | the machine's colour |
+| `Unknown` | a dashed ring | the machine's colour, a little faded |
+
+- `.size(MarkSize::Large | Medium | Small)`: 16, 14 or 12 px (a heading, a row, a line of small
+  text). The badge is 0.58 of the icon's side and hangs out of its box by 0.24 of it, right and
+  bottom: leave room.
+- The badge sits on a cut-out of the surface behind it. `.on(colour)` gives that surface (the left
+  tree's by default); a row that is hovered or chosen passes its own, and the cut-out follows it
+  over `HOVER`.
+- `label` (`server · offline since 09:33`) is the mark's tooltip and its accessible label.
+- A state that changes fades and scales the old badge out and the new one in, and moves the
+  icon's colour, over `PANEL`; with reduced motion they jump. A first state is simply there.
+- The colours are the palette's (`text`, `ok`, `faint`, `wait`, `on_wait`), so both themes have
+  their own. The house, the arrow and both rings are painted as paths (GPUI draws no solid house
+  and no dashed circle from a style; a ring keeps its thickness in a look with a thick border); the dots are
+  boxes shaped by the look.
+- A test finds the mark as `<id>`, its icon `<id>-icon`, its badge `<id>-badge`, the cut-out
+  `<id>-cutout` and the shape drawn `<id>-here`, `-online`, `-offline`, `-update` or `-unknown`.
+
 ## The rules the kit holds
 
 Its tests are its contract: GPUI's own `.hover(..)` is refused (every colour fades), everything
