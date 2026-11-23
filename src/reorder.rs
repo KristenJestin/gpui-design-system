@@ -90,6 +90,12 @@ impl ReorderGroup {
         self
     }
 
+    /// A button of its own at the right of the heading (a menu): a press on it neither starts a
+    /// drag nor folds the group.
+    pub fn trailing(self, _element: impl IntoElement) -> Self {
+        self
+    }
+
     /// A row of the group, by its key (unique in the whole list).
     pub fn row(mut self, key: impl Into<SharedString>, content: impl IntoElement) -> Self {
         self.rows.push((key.into(), content.into_any_element()));

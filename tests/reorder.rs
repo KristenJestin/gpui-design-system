@@ -31,6 +31,8 @@ struct Host {
     clicks: Vec<&'static str>,
     /// Whether the host applies a move it is told of: a refusal leaves the order as it was.
     accepts: bool,
+    /// Whether each group's heading has a button of its own at its right.
+    more: bool,
 }
 
 fn take(host: &mut Host, row: &str) -> &'static str {
@@ -72,6 +74,16 @@ impl Render for Host {
             );
             for key in &g.rows {
                 group = group.row(*key, body(key, cx));
+            }
+            if self.more {
+                let key = g.key;
+                group = group.trailing(
+                    div()
+                        .id(format!("more-{key}"))
+                        .w(px(20.))
+                        .h(px(20.))
+                        .on_click(cx.listener(move |this, _, _, _| this.clicks.push(key))),
+                );
             }
             list = list.group(group);
         }
@@ -149,6 +161,7 @@ fn host<'a>(
         said: Vec::new(),
         clicks: Vec::new(),
         accepts: true,
+        more: false,
     });
     cx.update(|window, cx| window.render_frame(cx));
     advance(cx, PANEL * 2);
@@ -571,4 +584,157 @@ fn nothing_redraws_at_rest_before_and_after_a_drag(cx: &mut TestAppContext) {
     drag("list-row-a", centre("x", cx) + 5., cx);
     settle(cx);
     assert_eq!(pending_frames(cx), 0);
+}
+
+fn change(view: &Entity<Host>, cx: &mut VisualTestContext, f: impl FnOnce(&mut Host)) {
+    view.update(cx, |this, cx| {
+        f(this);
+        cx.notify();
+    });
+}
+
+#[gpui_kit::test]
+fn a_group_that_is_added_unfolds_and_fades_in(cx: &mut TestAppContext) {
+    let (view, cx) = host(&[("g", true, &["x"])], &["a"], false, cx);
+    let a = top("a", cx);
+
+    change(&view, cx, |this| {
+        this.groups.push(Group {
+            key: "h",
+            open: true,
+            rows: vec!["y"],
+        })
+    });
+    advance(cx, FRAME);
+    let first = top("a", cx);
+    assert!(first - a < 8., "no jump when it comes: {}", first - a);
+    advance(cx, PANEL / 3);
+    let mid = top("a", cx);
+    assert!(first < mid, "it unfolds: {mid}");
+    assert!(shown("list-group-h-header", cx), "its heading is there");
+    advance(cx, PANEL * 2);
+    let end = top("a", cx);
+    assert!(end > mid, "the rows below made room: {mid} < {end}");
+    let heading = bounds("list-group-h-header", cx).size.height;
+    assert!(heading > px(0.));
+    assert_eq!(pending_frames(cx), 0, "nothing moves at rest");
+}
+
+#[gpui_kit::test]
+fn a_group_that_is_removed_folds_away_and_fades_out(cx: &mut TestAppContext) {
+    let (view, cx) = host(&[("g", true, &["x", "y"])], &["a"], false, cx);
+    let a = top("a", cx);
+
+    // The group goes; its rows go back to the list, at its end.
+    change(&view, cx, |this| {
+        this.groups.clear();
+        this.loose.extend(["x", "y"]);
+    });
+    advance(cx, FRAME);
+    assert!(
+        shown("list-group-g-header", cx),
+        "its heading is still there, folding"
+    );
+    advance(cx, PANEL / 3);
+    assert!(shown("list-group-g-header", cx));
+    let mid = top("a", cx);
+    assert!(mid < a, "what is below slides up: {mid} < {a}");
+    advance(cx, PANEL * 2);
+    assert!(!shown("list-group-g-header", cx), "folded away");
+    assert!(top("a", cx) < a, "the space of the group is gone");
+    assert_eq!(pending_frames(cx), 0, "nothing moves at rest");
+}
+
+#[gpui_kit::test]
+fn groups_changed_from_outside_slide_to_their_new_places(cx: &mut TestAppContext) {
+    let (view, cx) = host(
+        &[("g1", true, &["x"]), ("g2", true, &["y"])],
+        &["a"],
+        false,
+        cx,
+    );
+    let (h1, h2) = (
+        bounds("list-group-g1-header", cx).origin.y,
+        bounds("list-group-g2-header", cx).origin.y,
+    );
+    let (x, y) = (top("x", cx), top("y", cx));
+
+    change(&view, cx, |this| {
+        this.groups.reverse();
+    });
+    advance(cx, FRAME);
+    let first = bounds("list-group-g1-header", cx).origin.y;
+    assert!((first - h1).abs() < px(8.), "no jump at once: {first:?}");
+    advance(cx, PANEL / 3);
+    let mid = bounds("list-group-g1-header", cx).origin.y;
+    assert!(h1 < mid && mid < h2, "its heading is on its way: {mid:?}");
+    let mid_row = top("x", cx);
+    assert!(x < mid_row && mid_row < y, "and so is its row: {mid_row}");
+    advance(cx, PANEL * 2);
+    assert_eq!(bounds("list-group-g1-header", cx).origin.y, h2);
+    assert_eq!(top("x", cx), y);
+    assert_eq!(top("y", cx), x);
+    assert_eq!(pending_frames(cx), 0, "nothing moves at rest");
+}
+
+#[gpui_kit::test]
+fn a_row_moved_between_groups_from_outside_slides(cx: &mut TestAppContext) {
+    let (view, cx) = host(&[("g", true, &["x"])], &["a", "b"], false, cx);
+    let (a, b) = (top("a", cx), top("b", cx));
+    let x = top("x", cx);
+
+    change(&view, cx, |this| {
+        this.loose.retain(|k| *k != "b");
+        this.groups[0].rows.push("b");
+    });
+    advance(cx, FRAME);
+    assert!((top("b", cx) - b).abs() < 8., "it starts where it was");
+    advance(cx, PANEL / 3);
+    let mid = top("b", cx);
+    assert!(x < mid && mid < b, "it is on its way: {mid}");
+    advance(cx, PANEL * 2);
+    assert_eq!(top("b", cx), x + PITCH);
+    assert_eq!(top("a", cx), a + PITCH, "the group grew by a row");
+}
+
+#[gpui_kit::test]
+fn with_reduced_motion_a_group_added_or_removed_is_there_at_once(cx: &mut TestAppContext) {
+    let (view, cx) = host(&[("g", true, &["x"])], &["a"], true, cx);
+    change(&view, cx, |this| {
+        this.groups.push(Group {
+            key: "h",
+            open: true,
+            rows: Vec::new(),
+        })
+    });
+    advance(cx, FRAME);
+    let full = bounds("list-group-h-header", cx).size.height;
+    assert!(full > px(0.), "it is at its full height at once");
+    change(&view, cx, |this| this.groups.truncate(1));
+    advance(cx, FRAME);
+    assert!(!shown("list-group-h-header", cx), "and gone at once");
+}
+
+#[gpui_kit::test]
+fn a_click_in_the_trailing_slot_neither_drags_nor_toggles(cx: &mut TestAppContext) {
+    let (view, cx) = host(&[("g", true, &["x"])], &["a"], false, cx);
+    change(&view, cx, |this| this.more = true);
+    advance(cx, PANEL);
+    assert!(shown("more-g", cx), "the heading has its own button");
+
+    cx.update(|window, cx| window.click("more-g", cx));
+    assert_eq!(view.read_with(cx, |this, _| this.clicks.clone()), ["g"]);
+    assert_eq!(
+        said(&view, cx),
+        Vec::<String>::new(),
+        "the group did not toggle"
+    );
+
+    // A press on it that moves is no drag either.
+    let from = bounds("more-g", cx).center();
+    press(from, cx);
+    pull(from, point(from.x, from.y + px(80.)), cx);
+    assert!(!shown("list-slot", cx), "no drag started");
+    release(point(from.x, from.y + px(80.)), cx);
+    assert_eq!(said(&view, cx), Vec::<String>::new());
 }
