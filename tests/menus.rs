@@ -244,3 +244,33 @@ fn a_switch_entry_slides_its_knob_when_it_turns_and_picks_like_an_entry(cx: &mut
     cx.update(|window, cx| window.click("grouped", cx));
     assert_eq!(picked.get(), 1);
 }
+
+#[gpui_kit::test]
+fn an_entry_turned_disabled_from_outside_is_inert_and_enabled_again(cx: &mut TestAppContext) {
+    let picked = Rc::new(std::cell::Cell::new(0));
+    let seen = picked.clone();
+    let kept: Rc<RefCell<Option<Entity<Menu>>>> = Rc::default();
+    let cx = opened_keeping(cx, kept.clone(), move |cx| {
+        let seen = seen.clone();
+        Menu::new("more", "More", cx).entry("new", "New group…", Some(Icon::Plus), move |_, _| {
+            seen.set(seen.get() + 1)
+        })
+    });
+    let menu = kept.borrow().clone().unwrap();
+    let id: gpui_kit::ElementId = "new".into();
+
+    menu.update(cx, |menu, cx| {
+        menu.set_disabled(&id, Some("Shown by machine".into()), cx)
+    });
+    advance(cx, ENTER * 2);
+    let reason = cx.update(|window, _| window.find("new-detail").label().map(str::to_owned));
+    assert_eq!(reason.as_deref(), Some("Shown by machine"));
+    cx.update(|window, cx| window.click("new", cx));
+    assert_eq!(picked.get(), 0, "a disabled entry picks nothing");
+
+    menu.update(cx, |menu, cx| menu.set_disabled(&id, None, cx));
+    advance(cx, ENTER * 2);
+    assert!(cx.update(|window, _| window.try_find("new-detail".to_owned()).is_none()));
+    cx.update(|window, cx| window.click("new", cx));
+    assert_eq!(picked.get(), 1, "enabled again, it is picked");
+}

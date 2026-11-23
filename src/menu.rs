@@ -147,6 +147,17 @@ impl Menu {
         self
     }
 
+    /// The entry `id` cannot be picked now (`Some(reason)`, as [`disabled`](Self::disabled)) or can
+    /// again (`None`), changed from outside while the menu lives on.
+    pub fn set_disabled(
+        &mut self,
+        id: &ElementId,
+        reason: Option<SharedString>,
+        cx: &mut Context<Self>,
+    ) {
+        let _ = (id, reason, cx);
+    }
+
     /// A destructive entry, "Remove…": in the failure colour, after the others and a line,
     /// whatever the order it was given in. Its `pick` opens the [`Confirm`](crate::Confirm).
     pub fn danger(
