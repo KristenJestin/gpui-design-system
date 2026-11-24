@@ -910,3 +910,60 @@ fn the_row_held_stays_under_the_pointer_when_the_list_changes_from_outside(
     assert!((top("y", cx) - before).abs() < 2., "and stays there");
     release(held, cx);
 }
+
+#[gpui_kit::test]
+fn the_row_held_does_not_jump_when_a_second_change_comes_while_its_group_still_slides(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = host(
+        &[("g1", true, &["x", "z"]), ("g2", true, &["y"])],
+        &["a"],
+        false,
+        cx,
+    );
+    let from = bounds("list-row-y", cx).center();
+    press(from, cx);
+    let held = point(from.x, from.y + px(8.));
+    pull(from, held, cx);
+    advance(cx, PANEL * 2);
+    let before = top("y", cx);
+
+    change(&view, cx, |this| this.groups.reverse());
+    advance(cx, PANEL / 3);
+    assert!(
+        (top("y", cx) - before).abs() < 2.,
+        "it stays under the pointer while its group slides: {} -> {before}",
+        top("y", cx)
+    );
+    change(&view, cx, |this| this.groups.reverse());
+    for _ in 0..8 {
+        advance(cx, FRAME);
+        assert!(
+            (top("y", cx) - before).abs() < 2.,
+            "a second change does not move it: {} -> {before}",
+            top("y", cx)
+        );
+    }
+    advance(cx, PANEL * 2);
+    assert!((top("y", cx) - before).abs() < 2., "and it stays there");
+    release(held, cx);
+}
+
+#[gpui_kit::test]
+fn a_drop_after_a_change_from_outside_lands_in_the_new_shape(cx: &mut TestAppContext) {
+    let (view, cx) = host(&[], &["a", "b", "c", "d"], false, cx);
+    let to = centre("d", cx) + 5.;
+    let (_, held) = lift("list-row-c", to, cx);
+    assert!(said(&view, cx).is_empty());
+
+    // The row above it goes: what is under the pointer is now the end of the list.
+    change(&view, cx, |this| this.loose.retain(|k| *k != "a"));
+    advance(cx, PANEL * 2);
+    release(held, cx);
+    assert_eq!(said(&view, cx), ["row c -> - @2"]);
+    settle(cx);
+    assert_eq!(
+        view.read_with(cx, |this, _| this.loose.clone()),
+        ["b", "d", "c"]
+    );
+}
