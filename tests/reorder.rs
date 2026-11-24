@@ -65,26 +65,29 @@ impl Render for Host {
         let mut list = Reorderable::new("list").gap(px(GAP));
         for g in &self.groups {
             let mut group = ReorderGroup::new(g.key, g.key.to_uppercase()).open(g.open);
-            group = group.mark(
+            let mark = g.key;
+            group = group.mark(move |_, _| {
                 div()
-                    .id(format!("mark-{}", g.key))
+                    .id(format!("mark-{mark}"))
                     .w(px(12.))
                     .h(px(12.))
-                    .test_support(),
-            );
+                    .test_support()
+            });
             for key in &g.rows {
                 group = group.row(*key, body(key, cx));
             }
             if self.more {
                 let key = g.key;
-                group = group.trailing(
+                let host = view.clone();
+                group = group.trailing(move |_, _| {
+                    let host = host.clone();
                     div()
                         .id(format!("more-{key}"))
                         .w(px(20.))
                         .h(px(20.))
-                        .on_click(cx.listener(move |this, _, _, _| this.clicks.push(key)))
-                        .test_support(),
-                );
+                        .on_click(move |_, _, cx| host.update(cx, |this, _| this.clicks.push(key)))
+                        .test_support()
+                });
             }
             list = list.group(group);
         }
@@ -770,4 +773,197 @@ fn a_click_in_the_trailing_slot_neither_drags_nor_toggles(cx: &mut TestAppContex
     assert!(!shown("list-slot", cx), "no drag started");
     release(point(from.x, from.y + px(80.)), cx);
     assert_eq!(said(&view, cx), Vec::<String>::new());
+}
+
+#[gpui_kit::test]
+fn a_heading_that_leaves_keeps_its_mark_and_its_trailing_element_while_it_folds_away(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = host(&[("g", false, &["x", "y"])], &["a"], false, cx);
+    change(&view, cx, |this| this.more = true);
+    advance(cx, PANEL * 2);
+    assert!(shown("mark-g", cx) && shown("more-g", cx), "drawn at rest");
+
+    change(&view, cx, |this| {
+        this.groups.clear();
+        this.loose.extend(["x", "y"]);
+    });
+    advance(cx, FRAME);
+    assert!(shown("list-group-g-header", cx), "the heading is folding");
+    assert!(shown("mark-g", cx), "its mark is still drawn");
+    assert!(shown("more-g", cx), "and so is its trailing element");
+    advance(cx, PANEL / 3);
+    assert!(shown("mark-g", cx) && shown("more-g", cx));
+    advance(cx, PANEL * 2);
+    assert!(!shown("list-group-g-header", cx), "folded away");
+    assert!(
+        !shown("mark-g", cx) && !shown("more-g", cx),
+        "and they went with it"
+    );
+    assert_eq!(pending_frames(cx), 0, "nothing moves at rest");
+}
+
+#[gpui_kit::test]
+fn a_heading_that_leaves_takes_no_press_on_its_trailing_element(cx: &mut TestAppContext) {
+    let (view, cx) = host(&[("g", true, &["x"])], &["a"], false, cx);
+    change(&view, cx, |this| this.more = true);
+    advance(cx, PANEL * 2);
+
+    change(&view, cx, |this| {
+        this.groups.clear();
+        this.loose.push("x");
+    });
+    advance(cx, FRAME);
+    assert!(shown("more-g", cx));
+    let at = bounds("more-g", cx).center();
+    cx.simulate_mouse_move(at, None, NONE);
+    cx.simulate_mouse_down(at, MouseButton::Left, NONE);
+    cx.simulate_mouse_up(at, MouseButton::Left, NONE);
+    advance(cx, FRAME);
+    assert!(
+        view.read_with(cx, |this, _| !this.clicks.contains(&"g")),
+        "a group that is gone is not pressed"
+    );
+}
+
+#[gpui_kit::test]
+fn groups_changed_from_outside_during_a_drag_slide_to_their_new_places(cx: &mut TestAppContext) {
+    let (view, cx) = host(
+        &[("g1", true, &["x"]), ("g2", true, &["y"])],
+        &["a", "b"],
+        false,
+        cx,
+    );
+    let (h1, h2) = (
+        bounds("list-group-g1-header", cx).origin.y,
+        bounds("list-group-g2-header", cx).origin.y,
+    );
+    let from = bounds("list-row-a", cx).center();
+    press(from, cx);
+    let held = point(from.x, from.y + px(8.));
+    pull(from, held, cx);
+    assert!(shown("list-slot", cx), "a row is held");
+
+    change(&view, cx, |this| this.groups.reverse());
+    advance(cx, FRAME);
+    let first = bounds("list-group-g1-header", cx).origin.y;
+    assert!(
+        first >= h1 && first - h1 < (h2 - h1) / 2.,
+        "no jump at once: {first:?}"
+    );
+    advance(cx, PANEL / 3);
+    let mid = bounds("list-group-g1-header", cx).origin.y;
+    assert!(h1 < mid && mid < h2, "its heading is on its way: {mid:?}");
+    advance(cx, PANEL * 2);
+    assert_eq!(bounds("list-group-g1-header", cx).origin.y, h2);
+    release(held, cx);
+    settle(cx);
+    assert_eq!(pending_frames(cx), 0, "nothing moves at rest");
+}
+
+#[gpui_kit::test]
+fn a_row_moved_from_outside_during_a_drag_slides(cx: &mut TestAppContext) {
+    let (view, cx) = host(&[("g", true, &["x"])], &["a", "b", "c"], false, cx);
+    let (b, x) = (top("b", cx), top("x", cx));
+    let from = bounds("list-row-a", cx).center();
+    press(from, cx);
+    let held = point(from.x, from.y + px(8.));
+    pull(from, held, cx);
+
+    change(&view, cx, |this| {
+        this.loose.retain(|k| *k != "b");
+        this.groups[0].rows.push("b");
+    });
+    advance(cx, FRAME);
+    assert!((top("b", cx) - b).abs() < 12., "it starts where it was");
+    advance(cx, PANEL / 3);
+    let mid = top("b", cx);
+    assert!(x < mid && mid < b, "it is on its way: {mid}");
+    release(held, cx);
+}
+
+#[gpui_kit::test]
+fn the_row_held_stays_under_the_pointer_when_the_list_changes_from_outside(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = host(
+        &[("g1", true, &["x", "z"]), ("g2", true, &["y"])],
+        &["a"],
+        false,
+        cx,
+    );
+    let from = bounds("list-row-y", cx).center();
+    press(from, cx);
+    let held = point(from.x, from.y + px(8.));
+    pull(from, held, cx);
+    advance(cx, PANEL * 2);
+    let before = top("y", cx);
+
+    change(&view, cx, |this| this.groups.reverse());
+    advance(cx, FRAME);
+    assert!(
+        (top("y", cx) - before).abs() < 2.,
+        "it does not jump with the list: {} -> {before}",
+        top("y", cx)
+    );
+    advance(cx, PANEL * 2);
+    assert!((top("y", cx) - before).abs() < 2., "and stays there");
+    release(held, cx);
+}
+
+#[gpui_kit::test]
+fn the_row_held_does_not_jump_when_a_second_change_comes_while_its_group_still_slides(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = host(
+        &[("g1", true, &["x", "z"]), ("g2", true, &["y"])],
+        &["a"],
+        false,
+        cx,
+    );
+    let from = bounds("list-row-y", cx).center();
+    press(from, cx);
+    let held = point(from.x, from.y + px(8.));
+    pull(from, held, cx);
+    advance(cx, PANEL * 2);
+    let before = top("y", cx);
+
+    change(&view, cx, |this| this.groups.reverse());
+    advance(cx, PANEL / 3);
+    assert!(
+        (top("y", cx) - before).abs() < 2.,
+        "it stays under the pointer while its group slides: {} -> {before}",
+        top("y", cx)
+    );
+    change(&view, cx, |this| this.groups.reverse());
+    for _ in 0..8 {
+        advance(cx, FRAME);
+        assert!(
+            (top("y", cx) - before).abs() < 2.,
+            "a second change does not move it: {} -> {before}",
+            top("y", cx)
+        );
+    }
+    advance(cx, PANEL * 2);
+    assert!((top("y", cx) - before).abs() < 2., "and it stays there");
+    release(held, cx);
+}
+
+#[gpui_kit::test]
+fn a_drop_after_a_change_from_outside_lands_in_the_new_shape(cx: &mut TestAppContext) {
+    let (view, cx) = host(&[], &["a", "b", "c", "d"], false, cx);
+    let to = centre("d", cx) + 5.;
+    let (_, held) = lift("list-row-c", to, cx);
+    assert!(said(&view, cx).is_empty());
+
+    // The row above it goes: what is under the pointer is now the end of the list.
+    change(&view, cx, |this| this.loose.retain(|k| *k != "a"));
+    advance(cx, PANEL * 2);
+    release(held, cx);
+    assert_eq!(said(&view, cx), ["row c -> - @2"]);
+    settle(cx);
+    assert_eq!(
+        view.read_with(cx, |this, _| this.loose.clone()),
+        ["b", "d", "c"]
+    );
 }

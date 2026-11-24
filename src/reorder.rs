@@ -12,9 +12,11 @@
 //! The groups come first, then the rows outside any group, and a group is not dragged below them.
 //!
 //! A group that the caller adds unfolds and fades in, one it removes folds away and fades out
-//! (its heading is kept for that, with its name and count), and when the caller changes the order
-//! of the groups or the group of a row from outside, what moved slides to its new place. A row
-//! that is new to the list is the caller's to bring in (a row that unfolds), in a group or not.
+//! (its heading is kept for that, with its name, count, mark and trailing element, which the
+//! group gave as functions for that reason; it takes no press), and when the caller changes the
+//! order of the groups or the group of a row from outside, what moved slides to its new place,
+//! while a row is held too (the row held stays under the pointer). A row that is new to the list
+//! is the caller's to bring in (a row that unfolds), in a group or not.
 //!
 //! The drag is the list's own: the pointer is followed at the window's level (not only over the
 //! list), and while a row is held a transparent sheet lies over the window so that nothing under
@@ -51,6 +53,9 @@ const THRESHOLD: f64 = 4.;
 type OnMoveRow = Rc<dyn Fn(&RowMove, &mut Window, &mut App)>;
 type OnMoveGroup = Rc<dyn Fn(&str, usize, &mut Window, &mut App)>;
 type OnToggle = Rc<dyn Fn(&str, bool, &mut Window, &mut App)>;
+/// What a heading draws, built again each time it is drawn: a heading that leaves is drawn once
+/// more after its group is gone, so it cannot be given as an element, which is drawn once.
+type Build = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 
 /// A row that was dragged to a place: `row` goes to `group` (`None`: outside any group) and is
 /// there at `index`, counted among the rows of that place once it has left its own.
@@ -66,8 +71,8 @@ pub struct ReorderGroup {
     key: SharedString,
     title: SharedString,
     open: bool,
-    mark: Option<AnyElement>,
-    trailing: Option<AnyElement>,
+    mark: Option<Build>,
+    trailing: Option<Build>,
     rows: Vec<(SharedString, AnyElement)>,
 }
 
@@ -92,15 +97,32 @@ impl ReorderGroup {
 
     /// What the header says of the rows it hides, before its name, while the group is folded: it
     /// unfolds and fades in as the group folds, and folds away as it opens.
-    pub fn mark(mut self, mark: impl IntoElement) -> Self {
-        self.mark = Some(mark.into_any_element());
+    ///
+    /// It is given as a function, called each time the heading is drawn: every frame, and for up
+    /// to [`PANEL`](crate::motion::PANEL) after the group is gone from the list, while its heading
+    /// folds away. It must not read state that the group's removal clears, and it builds a fresh
+    /// element each time.
+    pub fn mark<E: IntoElement>(
+        mut self,
+        build: impl Fn(&mut Window, &mut App) -> E + 'static,
+    ) -> Self {
+        self.mark = Some(Rc::new(move |window, cx| {
+            build(window, cx).into_any_element()
+        }));
         self
     }
 
     /// A button of its own at the right of the heading (a menu): a press on it neither starts a
-    /// drag nor folds the group.
-    pub fn trailing(mut self, element: impl IntoElement) -> Self {
-        self.trailing = Some(element.into_any_element());
+    /// drag nor folds the group. Given as a function, like [`mark`](Self::mark), with the same
+    /// rule: it is called every frame, including after the group is gone while its heading folds
+    /// away, so it must not read state that the removal clears.
+    pub fn trailing<E: IntoElement>(
+        mut self,
+        build: impl Fn(&mut Window, &mut App) -> E + 'static,
+    ) -> Self {
+        self.trailing = Some(Rc::new(move |window, cx| {
+            build(window, cx).into_any_element()
+        }));
         self
     }
 
@@ -476,6 +498,8 @@ struct Memo {
     title: SharedString,
     count: usize,
     open: bool,
+    mark: Option<Build>,
+    trailing: Option<Build>,
 }
 
 /// A group of the list or one that left and is folding away, in the order they are drawn.
@@ -662,6 +686,18 @@ impl State {
         f32::from(drag.pos.y - drag.start.y)
     }
 
+    /// How far the group a held row is in is from its place: the row is drawn in it, and is held
+    /// at the pointer all the same.
+    fn group_offset(&self, unit: &Unit, now: Instant) -> f32 {
+        let Unit::Row(row) = unit else { return 0. };
+        let Some((Some(group), _)) = self.shape.place_of(row) else {
+            return 0.;
+        };
+        self.motions
+            .get(&Unit::Block(group))
+            .map_or(0., |m| m.value(now))
+    }
+
     fn outcome(&self) -> Option<Outcome> {
         let drag = self.drag.as_ref()?;
         outcome(
@@ -676,8 +712,9 @@ impl State {
     /// The drag is over: what was held slides from where it is to its place, and the slot fades.
     fn let_go(&mut self, now: Instant, reduce: bool) {
         if let Some(drag) = self.drag.take() {
+            let from = Self::dy(&drag) - self.group_offset(&drag.unit, now);
             self.motions
-                .insert(drag.unit.clone(), Motion::settled(Self::dy(&drag)));
+                .insert(drag.unit.clone(), Motion::settled(from));
         }
         self.lift.animate(0., PANEL, now, reduce);
         self.slot_fade.animate(0., PANEL, now, reduce);
@@ -777,8 +814,9 @@ impl State {
         let (entries, entering) = self.groups_now(memos, now, reduce);
         self.entries = entries;
         // The caller changed the list from outside, not by a drop: what moved starts where it was.
-        let outside =
-            self.started && !dropped && self.drag.is_none() && !old.same_structure(&self.shape);
+        // A change while a row is held is one too: the rest slides, and what is held stays where
+        // the pointer has it.
+        let outside = self.started && !dropped && !old.same_structure(&self.shape);
         if outside {
             let first = first_frame(&old, &self.shape, &self.entries);
             let value = |unit: &Unit| self.motions.get(unit).map_or(0., |m| m.value(now));
@@ -786,7 +824,24 @@ impl State {
             for key in &entering {
                 heights.insert(Unit::Header(key.clone()), 0.);
             }
-            let starts = carried(&old, &first, &heights, &value);
+            let mut starts = carried(&old, &first, &heights, &value);
+            if let Some(drag) = &mut self.drag {
+                // What is held is drawn at the pointer, wherever its place went: the pointer's
+                // origin moves by how far its natural place did. Its start says where it is drawn
+                // (that place with the slide of its group still to go), and the held row is drawn
+                // without that slide, so the group's slide it has now is taken off.
+                let own = starts.remove(&drag.unit).unwrap_or(0.);
+                let group = |shape: &Shape| match &drag.unit {
+                    Unit::Row(row) => shape.place_of(row).and_then(|(group, _)| group),
+                    _ => None,
+                };
+                let block = group(&self.shape).map_or(0., |g| {
+                    let unit = Unit::Block(g);
+                    starts.get(&unit).copied().unwrap_or_else(|| value(&unit))
+                });
+                let slide = group(&old).map_or(0., |g| value(&Unit::Block(g)));
+                drag.start.y -= px(own + block - slide);
+            }
             for (unit, start) in starts {
                 self.motions.insert(unit, Motion::settled(start));
             }
@@ -866,7 +921,12 @@ impl State {
                 .collect(),
             entering,
             offsets,
-            held: self.drag.as_ref().map(|d| (d.unit.clone(), Self::dy(d))),
+            held: self.drag.as_ref().map(|d| {
+                (
+                    d.unit.clone(),
+                    Self::dy(d) - self.group_offset(&d.unit, now),
+                )
+            }),
             lifted: self.lifted.clone(),
             lift: self.lift.value(now),
             slot,
@@ -1049,6 +1109,8 @@ impl RenderOnce for Reorderable {
                 title: g.title.clone(),
                 count: g.rows.len(),
                 open: g.open,
+                mark: g.mark.clone(),
+                trailing: g.trailing.clone(),
             })
             .collect();
         let (plan, running) = state.update(cx, |s, _| {
@@ -1116,8 +1178,10 @@ impl RenderOnce for Reorderable {
                 title,
                 count,
                 open,
+                mark,
+                trailing,
             } = memo.clone();
-            // A group that left has its heading alone, folding away.
+            // A group that left has its heading alone, folding away, as it was drawn last.
             let group = live.remove(&key);
             let gid = part(&id, &format!("group-{key}"));
             let block_unit = Unit::Block(key.clone());
@@ -1151,11 +1215,9 @@ impl RenderOnce for Reorderable {
                     });
             }
             let mut header = header.child(chevron(part(&gid, "chevron"), open, window, cx));
-            let (mark, trailing, rows) = match group {
-                Some(g) => (g.mark, g.trailing, g.rows),
-                None => (None, None, Vec::new()),
-            };
+            let rows = group.map(|g| g.rows).unwrap_or_default();
             if let Some(mark) = mark {
+                let mark = mark(window, cx);
                 header =
                     header.children(unfolding_mark(part(&gid, "mark"), mark, !open, window, cx));
             }
@@ -1181,17 +1243,22 @@ impl RenderOnce for Reorderable {
                         .test_support(),
                 );
             if let Some(trailing) = trailing {
+                let trailing = trailing(window, cx);
                 // Its own press: the heading's drag and fold are not its business.
-                header = header.child(
-                    div()
-                        .id(part(&gid, "trailing"))
-                        .flex_none()
-                        .ml_auto()
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .child(trailing)
-                        .test_support(),
-                );
+                let mut slot = div()
+                    .id(part(&gid, "trailing"))
+                    .flex_none()
+                    .ml_auto()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+                if *leaving {
+                    // What is gone is not pressed: the button of its heading takes nothing while
+                    // it folds away, its press is stopped before it reaches it.
+                    slot = slot
+                        .capture_any_mouse_down(|_, _, cx| cx.stop_propagation())
+                        .capture_any_mouse_up(|_, _, cx| cx.stop_propagation());
+                }
+                header = header.child(slot.child(trailing).test_support());
             }
             // The group a held row would go into says so.
             let into = fade(
@@ -1207,16 +1274,16 @@ impl RenderOnce for Reorderable {
                 d.bg(p.hover.opacity(into))
                     .text_color(mix(p.faint, p.text, t))
             });
+            let head_frame = div()
+                .w_full()
+                .relative()
+                .child(header)
+                .child(measure(header_unit.clone(), &heights));
             let head = placed(
                 part(&gid, "head"),
                 &header_unit,
                 &plan,
-                div()
-                    .w_full()
-                    .relative()
-                    .child(header)
-                    .child(measure(header_unit.clone(), &heights))
-                    .into_any_element(),
+                head_frame.into_any_element(),
                 cx,
             );
 
