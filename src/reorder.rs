@@ -1237,16 +1237,20 @@ impl RenderOnce for Reorderable {
             if let Some(trailing) = trailing {
                 let trailing = trailing(window, cx);
                 // Its own press: the heading's drag and fold are not its business.
-                header = header.child(
-                    div()
-                        .id(part(&gid, "trailing"))
-                        .flex_none()
-                        .ml_auto()
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                        .child(trailing)
-                        .test_support(),
-                );
+                let mut slot = div()
+                    .id(part(&gid, "trailing"))
+                    .flex_none()
+                    .ml_auto()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation());
+                if *leaving {
+                    // What is gone is not pressed: the button of its heading takes nothing while
+                    // it folds away, its press is stopped before it reaches it.
+                    slot = slot
+                        .capture_any_mouse_down(|_, _, cx| cx.stop_propagation())
+                        .capture_any_mouse_up(|_, _, cx| cx.stop_propagation());
+                }
+                header = header.child(slot.child(trailing).test_support());
             }
             // The group a held row would go into says so.
             let into = fade(
@@ -1262,23 +1266,11 @@ impl RenderOnce for Reorderable {
                 d.bg(p.hover.opacity(into))
                     .text_color(mix(p.faint, p.text, t))
             });
-            let mut head_frame = div()
+            let head_frame = div()
                 .w_full()
                 .relative()
                 .child(header)
                 .child(measure(header_unit.clone(), &heights));
-            if *leaving {
-                // What is gone is not pressed: the button of its heading takes nothing while it
-                // folds away.
-                head_frame = head_frame.child(
-                    div()
-                        .id(part(&gid, "leaving"))
-                        .absolute()
-                        .size_full()
-                        .occlude()
-                        .test_support(),
-                );
-            }
             let head = placed(
                 part(&gid, "head"),
                 &header_unit,

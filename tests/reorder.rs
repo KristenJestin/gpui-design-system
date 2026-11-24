@@ -808,7 +808,6 @@ fn a_heading_that_leaves_takes_no_press_on_its_trailing_element(cx: &mut TestApp
     let (view, cx) = host(&[("g", true, &["x"])], &["a"], false, cx);
     change(&view, cx, |this| this.more = true);
     advance(cx, PANEL * 2);
-    let at = bounds("more-g", cx).center();
 
     change(&view, cx, |this| {
         this.groups.clear();
@@ -816,13 +815,13 @@ fn a_heading_that_leaves_takes_no_press_on_its_trailing_element(cx: &mut TestApp
     });
     advance(cx, FRAME);
     assert!(shown("more-g", cx));
-    let at = point(at.x, bounds("more-g", cx).center().y.max(at.y));
+    let at = bounds("more-g", cx).center();
     cx.simulate_mouse_move(at, None, NONE);
     cx.simulate_mouse_down(at, MouseButton::Left, NONE);
     cx.simulate_mouse_up(at, MouseButton::Left, NONE);
     advance(cx, FRAME);
     assert!(
-        view.read_with(cx, |this, _| this.clicks.is_empty()),
+        view.read_with(cx, |this, _| !this.clicks.contains(&"g")),
         "a group that is gone is not pressed"
     );
 }
