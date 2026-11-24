@@ -491,6 +491,8 @@ struct Memo {
     title: SharedString,
     count: usize,
     open: bool,
+    mark: Option<Build>,
+    trailing: Option<Build>,
 }
 
 /// A group of the list or one that left and is folding away, in the order they are drawn.
@@ -1064,6 +1066,8 @@ impl RenderOnce for Reorderable {
                 title: g.title.clone(),
                 count: g.rows.len(),
                 open: g.open,
+                mark: g.mark.clone(),
+                trailing: g.trailing.clone(),
             })
             .collect();
         let (plan, running) = state.update(cx, |s, _| {
@@ -1131,8 +1135,10 @@ impl RenderOnce for Reorderable {
                 title,
                 count,
                 open,
+                mark,
+                trailing,
             } = memo.clone();
-            // A group that left has its heading alone, folding away.
+            // A group that left has its heading alone, folding away, as it was drawn last.
             let group = live.remove(&key);
             let gid = part(&id, &format!("group-{key}"));
             let block_unit = Unit::Block(key.clone());
@@ -1166,10 +1172,7 @@ impl RenderOnce for Reorderable {
                     });
             }
             let mut header = header.child(chevron(part(&gid, "chevron"), open, window, cx));
-            let (mark, trailing, rows) = match group {
-                Some(g) => (g.mark, g.trailing, g.rows),
-                None => (None, None, Vec::new()),
-            };
+            let rows = group.map(|g| g.rows).unwrap_or_default();
             if let Some(mark) = mark {
                 let mark = mark(window, cx);
                 header =
@@ -1224,16 +1227,28 @@ impl RenderOnce for Reorderable {
                 d.bg(p.hover.opacity(into))
                     .text_color(mix(p.faint, p.text, t))
             });
+            let mut head_frame = div()
+                .w_full()
+                .relative()
+                .child(header)
+                .child(measure(header_unit.clone(), &heights));
+            if *leaving {
+                // What is gone is not pressed: the button of its heading takes nothing while it
+                // folds away.
+                head_frame = head_frame.child(
+                    div()
+                        .id(part(&gid, "leaving"))
+                        .absolute()
+                        .size_full()
+                        .occlude()
+                        .test_support(),
+                );
+            }
             let head = placed(
                 part(&gid, "head"),
                 &header_unit,
                 &plan,
-                div()
-                    .w_full()
-                    .relative()
-                    .child(header)
-                    .child(measure(header_unit.clone(), &heights))
-                    .into_any_element(),
+                head_frame.into_any_element(),
                 cx,
             );
 
