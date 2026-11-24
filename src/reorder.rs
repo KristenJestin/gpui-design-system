@@ -98,7 +98,10 @@ impl ReorderGroup {
     /// What the header says of the rows it hides, before its name, while the group is folded: it
     /// unfolds and fades in as the group folds, and folds away as it opens.
     ///
-    /// It is given as a function, called each time the heading is drawn.
+    /// It is given as a function, called each time the heading is drawn: every frame, and for up
+    /// to [`PANEL`](crate::motion::PANEL) after the group is gone from the list, while its heading
+    /// folds away. It must not read state that the group's removal clears, and it builds a fresh
+    /// element each time.
     pub fn mark<E: IntoElement>(
         mut self,
         build: impl Fn(&mut Window, &mut App) -> E + 'static,
@@ -110,7 +113,9 @@ impl ReorderGroup {
     }
 
     /// A button of its own at the right of the heading (a menu): a press on it neither starts a
-    /// drag nor folds the group. Given as a function, like [`mark`](Self::mark).
+    /// drag nor folds the group. Given as a function, like [`mark`](Self::mark), with the same
+    /// rule: it is called every frame, including after the group is gone while its heading folds
+    /// away, so it must not read state that the removal clears.
     pub fn trailing<E: IntoElement>(
         mut self,
         build: impl Fn(&mut Window, &mut App) -> E + 'static,
