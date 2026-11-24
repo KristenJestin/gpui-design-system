@@ -774,3 +774,140 @@ fn a_click_in_the_trailing_slot_neither_drags_nor_toggles(cx: &mut TestAppContex
     release(point(from.x, from.y + px(80.)), cx);
     assert_eq!(said(&view, cx), Vec::<String>::new());
 }
+
+#[gpui_kit::test]
+fn a_heading_that_leaves_keeps_its_mark_and_its_trailing_element_while_it_folds_away(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = host(&[("g", false, &["x", "y"])], &["a"], false, cx);
+    change(&view, cx, |this| this.more = true);
+    advance(cx, PANEL * 2);
+    assert!(shown("mark-g", cx) && shown("more-g", cx), "drawn at rest");
+
+    change(&view, cx, |this| {
+        this.groups.clear();
+        this.loose.extend(["x", "y"]);
+    });
+    advance(cx, FRAME);
+    assert!(shown("list-group-g-header", cx), "the heading is folding");
+    assert!(shown("mark-g", cx), "its mark is still drawn");
+    assert!(shown("more-g", cx), "and so is its trailing element");
+    advance(cx, PANEL / 3);
+    assert!(shown("mark-g", cx) && shown("more-g", cx));
+    advance(cx, PANEL * 2);
+    assert!(!shown("list-group-g-header", cx), "folded away");
+    assert!(
+        !shown("mark-g", cx) && !shown("more-g", cx),
+        "and they went with it"
+    );
+    assert_eq!(pending_frames(cx), 0, "nothing moves at rest");
+}
+
+#[gpui_kit::test]
+fn a_heading_that_leaves_takes_no_press_on_its_trailing_element(cx: &mut TestAppContext) {
+    let (view, cx) = host(&[("g", true, &["x"])], &["a"], false, cx);
+    change(&view, cx, |this| this.more = true);
+    advance(cx, PANEL * 2);
+    let at = bounds("more-g", cx).center();
+
+    change(&view, cx, |this| {
+        this.groups.clear();
+        this.loose.push("x");
+    });
+    advance(cx, FRAME);
+    assert!(shown("more-g", cx));
+    let at = point(at.x, bounds("more-g", cx).center().y.max(at.y));
+    cx.simulate_mouse_move(at, None, NONE);
+    cx.simulate_mouse_down(at, MouseButton::Left, NONE);
+    cx.simulate_mouse_up(at, MouseButton::Left, NONE);
+    advance(cx, FRAME);
+    assert!(
+        view.read_with(cx, |this, _| this.clicks.is_empty()),
+        "a group that is gone is not pressed"
+    );
+}
+
+#[gpui_kit::test]
+fn groups_changed_from_outside_during_a_drag_slide_to_their_new_places(cx: &mut TestAppContext) {
+    let (view, cx) = host(
+        &[("g1", true, &["x"]), ("g2", true, &["y"])],
+        &["a", "b"],
+        false,
+        cx,
+    );
+    let (h1, h2) = (
+        bounds("list-group-g1-header", cx).origin.y,
+        bounds("list-group-g2-header", cx).origin.y,
+    );
+    let from = bounds("list-row-a", cx).center();
+    press(from, cx);
+    let held = point(from.x, from.y + px(8.));
+    pull(from, held, cx);
+    assert!(shown("list-slot", cx), "a row is held");
+
+    change(&view, cx, |this| this.groups.reverse());
+    advance(cx, FRAME);
+    let first = bounds("list-group-g1-header", cx).origin.y;
+    assert!(
+        first >= h1 && first - h1 < (h2 - h1) / 2.,
+        "no jump at once: {first:?}"
+    );
+    advance(cx, PANEL / 3);
+    let mid = bounds("list-group-g1-header", cx).origin.y;
+    assert!(h1 < mid && mid < h2, "its heading is on its way: {mid:?}");
+    advance(cx, PANEL * 2);
+    assert_eq!(bounds("list-group-g1-header", cx).origin.y, h2);
+    release(held, cx);
+    settle(cx);
+    assert_eq!(pending_frames(cx), 0, "nothing moves at rest");
+}
+
+#[gpui_kit::test]
+fn a_row_moved_from_outside_during_a_drag_slides(cx: &mut TestAppContext) {
+    let (view, cx) = host(&[("g", true, &["x"])], &["a", "b", "c"], false, cx);
+    let (b, x) = (top("b", cx), top("x", cx));
+    let from = bounds("list-row-a", cx).center();
+    press(from, cx);
+    let held = point(from.x, from.y + px(8.));
+    pull(from, held, cx);
+
+    change(&view, cx, |this| {
+        this.loose.retain(|k| *k != "b");
+        this.groups[0].rows.push("b");
+    });
+    advance(cx, FRAME);
+    assert!((top("b", cx) - b).abs() < 12., "it starts where it was");
+    advance(cx, PANEL / 3);
+    let mid = top("b", cx);
+    assert!(x < mid && mid < b, "it is on its way: {mid}");
+    release(held, cx);
+}
+
+#[gpui_kit::test]
+fn the_row_held_stays_under_the_pointer_when_the_list_changes_from_outside(
+    cx: &mut TestAppContext,
+) {
+    let (view, cx) = host(
+        &[("g1", true, &["x", "z"]), ("g2", true, &["y"])],
+        &["a"],
+        false,
+        cx,
+    );
+    let from = bounds("list-row-y", cx).center();
+    press(from, cx);
+    let held = point(from.x, from.y + px(8.));
+    pull(from, held, cx);
+    advance(cx, PANEL * 2);
+    let before = top("y", cx);
+
+    change(&view, cx, |this| this.groups.reverse());
+    advance(cx, FRAME);
+    assert!(
+        (top("y", cx) - before).abs() < 2.,
+        "it does not jump with the list: {} -> {before}",
+        top("y", cx)
+    );
+    advance(cx, PANEL * 2);
+    assert!((top("y", cx) - before).abs() < 2., "and stays there");
+    release(held, cx);
+}
