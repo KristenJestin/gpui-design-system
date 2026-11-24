@@ -12,9 +12,11 @@
 //! The groups come first, then the rows outside any group, and a group is not dragged below them.
 //!
 //! A group that the caller adds unfolds and fades in, one it removes folds away and fades out
-//! (its heading is kept for that, with its name and count), and when the caller changes the order
-//! of the groups or the group of a row from outside, what moved slides to its new place. A row
-//! that is new to the list is the caller's to bring in (a row that unfolds), in a group or not.
+//! (its heading is kept for that, with its name, count, mark and trailing element, which the
+//! group gave as functions for that reason; it takes no press), and when the caller changes the
+//! order of the groups or the group of a row from outside, what moved slides to its new place,
+//! while a row is held too (the row held stays under the pointer). A row that is new to the list
+//! is the caller's to bring in (a row that unfolds), in a group or not.
 //!
 //! The drag is the list's own: the pointer is followed at the window's level (not only over the
 //! list), and while a row is held a transparent sheet lies over the window so that nothing under
