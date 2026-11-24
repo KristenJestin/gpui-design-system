@@ -679,6 +679,18 @@ impl State {
         f32::from(drag.pos.y - drag.start.y)
     }
 
+    /// How far the group a held row is in is from its place: the row is drawn in it, and is held
+    /// at the pointer all the same.
+    fn group_offset(&self, unit: &Unit, now: Instant) -> f32 {
+        let Unit::Row(row) = unit else { return 0. };
+        let Some((Some(group), _)) = self.shape.place_of(row) else {
+            return 0.;
+        };
+        self.motions
+            .get(&Unit::Block(group))
+            .map_or(0., |m| m.value(now))
+    }
+
     fn outcome(&self) -> Option<Outcome> {
         let drag = self.drag.as_ref()?;
         outcome(
@@ -693,8 +705,9 @@ impl State {
     /// The drag is over: what was held slides from where it is to its place, and the slot fades.
     fn let_go(&mut self, now: Instant, reduce: bool) {
         if let Some(drag) = self.drag.take() {
+            let from = Self::dy(&drag) - self.group_offset(&drag.unit, now);
             self.motions
-                .insert(drag.unit.clone(), Motion::settled(Self::dy(&drag)));
+                .insert(drag.unit.clone(), Motion::settled(from));
         }
         self.lift.animate(0., PANEL, now, reduce);
         self.slot_fade.animate(0., PANEL, now, reduce);
@@ -794,8 +807,9 @@ impl State {
         let (entries, entering) = self.groups_now(memos, now, reduce);
         self.entries = entries;
         // The caller changed the list from outside, not by a drop: what moved starts where it was.
-        let outside =
-            self.started && !dropped && self.drag.is_none() && !old.same_structure(&self.shape);
+        // A change while a row is held is one too: the rest slides, and what is held stays where
+        // the pointer has it.
+        let outside = self.started && !dropped && !old.same_structure(&self.shape);
         if outside {
             let first = first_frame(&old, &self.shape, &self.entries);
             let value = |unit: &Unit| self.motions.get(unit).map_or(0., |m| m.value(now));
@@ -803,7 +817,21 @@ impl State {
             for key in &entering {
                 heights.insert(Unit::Header(key.clone()), 0.);
             }
-            let starts = carried(&old, &first, &heights, &value);
+            let mut starts = carried(&old, &first, &heights, &value);
+            if let Some(drag) = &mut self.drag {
+                // What is held is drawn at the pointer, wherever its place went: the place moves
+                // by what its own start and its group's say, so the pointer's origin does too.
+                let own = starts.remove(&drag.unit).unwrap_or(0.);
+                let group = match &drag.unit {
+                    Unit::Row(row) => self.shape.place_of(row).and_then(|(group, _)| group),
+                    _ => None,
+                };
+                let block = group.map_or(0., |g| {
+                    let unit = Unit::Block(g);
+                    starts.get(&unit).copied().unwrap_or_else(|| value(&unit))
+                });
+                drag.start.y -= px(own + block);
+            }
             for (unit, start) in starts {
                 self.motions.insert(unit, Motion::settled(start));
             }
@@ -883,7 +911,12 @@ impl State {
                 .collect(),
             entering,
             offsets,
-            held: self.drag.as_ref().map(|d| (d.unit.clone(), Self::dy(d))),
+            held: self.drag.as_ref().map(|d| {
+                (
+                    d.unit.clone(),
+                    Self::dy(d) - self.group_offset(&d.unit, now),
+                )
+            }),
             lifted: self.lifted.clone(),
             lift: self.lift.value(now),
             slot,
