@@ -821,18 +821,21 @@ impl State {
             }
             let mut starts = carried(&old, &first, &heights, &value);
             if let Some(drag) = &mut self.drag {
-                // What is held is drawn at the pointer, wherever its place went: the place moves
-                // by what its own start and its group's say, so the pointer's origin does too.
+                // What is held is drawn at the pointer, wherever its place went: the pointer's
+                // origin moves by how far its natural place did. Its start says where it is drawn
+                // (that place with the slide of its group still to go), and the held row is drawn
+                // without that slide, so the group's slide it has now is taken off.
                 let own = starts.remove(&drag.unit).unwrap_or(0.);
-                let group = match &drag.unit {
-                    Unit::Row(row) => self.shape.place_of(row).and_then(|(group, _)| group),
+                let group = |shape: &Shape| match &drag.unit {
+                    Unit::Row(row) => shape.place_of(row).and_then(|(group, _)| group),
                     _ => None,
                 };
-                let block = group.map_or(0., |g| {
+                let block = group(&self.shape).map_or(0., |g| {
                     let unit = Unit::Block(g);
                     starts.get(&unit).copied().unwrap_or_else(|| value(&unit))
                 });
-                drag.start.y -= px(own + block);
+                let slide = group(&old).map_or(0., |g| value(&Unit::Block(g)));
+                drag.start.y -= px(own + block - slide);
             }
             for (unit, start) in starts {
                 self.motions.insert(unit, Motion::settled(start));
