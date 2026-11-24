@@ -65,26 +65,29 @@ impl Render for Host {
         let mut list = Reorderable::new("list").gap(px(GAP));
         for g in &self.groups {
             let mut group = ReorderGroup::new(g.key, g.key.to_uppercase()).open(g.open);
-            group = group.mark(
+            let mark = g.key;
+            group = group.mark(move |_, _| {
                 div()
-                    .id(format!("mark-{}", g.key))
+                    .id(format!("mark-{mark}"))
                     .w(px(12.))
                     .h(px(12.))
-                    .test_support(),
-            );
+                    .test_support()
+            });
             for key in &g.rows {
                 group = group.row(*key, body(key, cx));
             }
             if self.more {
                 let key = g.key;
-                group = group.trailing(
+                let host = view.clone();
+                group = group.trailing(move |_, _| {
+                    let host = host.clone();
                     div()
                         .id(format!("more-{key}"))
                         .w(px(20.))
                         .h(px(20.))
-                        .on_click(cx.listener(move |this, _, _, _| this.clicks.push(key)))
-                        .test_support(),
-                );
+                        .on_click(move |_, _, cx| host.update(cx, |this, _| this.clicks.push(key)))
+                        .test_support()
+                });
             }
             list = list.group(group);
         }

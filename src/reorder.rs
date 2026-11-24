@@ -51,6 +51,9 @@ const THRESHOLD: f64 = 4.;
 type OnMoveRow = Rc<dyn Fn(&RowMove, &mut Window, &mut App)>;
 type OnMoveGroup = Rc<dyn Fn(&str, usize, &mut Window, &mut App)>;
 type OnToggle = Rc<dyn Fn(&str, bool, &mut Window, &mut App)>;
+/// What a heading draws, built again each time it is drawn: a heading that leaves is drawn once
+/// more after its group is gone, so it cannot be given as an element, which is drawn once.
+type Build = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 
 /// A row that was dragged to a place: `row` goes to `group` (`None`: outside any group) and is
 /// there at `index`, counted among the rows of that place once it has left its own.
@@ -66,8 +69,8 @@ pub struct ReorderGroup {
     key: SharedString,
     title: SharedString,
     open: bool,
-    mark: Option<AnyElement>,
-    trailing: Option<AnyElement>,
+    mark: Option<Build>,
+    trailing: Option<Build>,
     rows: Vec<(SharedString, AnyElement)>,
 }
 
@@ -92,15 +95,27 @@ impl ReorderGroup {
 
     /// What the header says of the rows it hides, before its name, while the group is folded: it
     /// unfolds and fades in as the group folds, and folds away as it opens.
-    pub fn mark(mut self, mark: impl IntoElement) -> Self {
-        self.mark = Some(mark.into_any_element());
+    ///
+    /// It is given as a function, called each time the heading is drawn.
+    pub fn mark<E: IntoElement>(
+        mut self,
+        build: impl Fn(&mut Window, &mut App) -> E + 'static,
+    ) -> Self {
+        self.mark = Some(Rc::new(move |window, cx| {
+            build(window, cx).into_any_element()
+        }));
         self
     }
 
     /// A button of its own at the right of the heading (a menu): a press on it neither starts a
-    /// drag nor folds the group.
-    pub fn trailing(mut self, element: impl IntoElement) -> Self {
-        self.trailing = Some(element.into_any_element());
+    /// drag nor folds the group. Given as a function, like [`mark`](Self::mark).
+    pub fn trailing<E: IntoElement>(
+        mut self,
+        build: impl Fn(&mut Window, &mut App) -> E + 'static,
+    ) -> Self {
+        self.trailing = Some(Rc::new(move |window, cx| {
+            build(window, cx).into_any_element()
+        }));
         self
     }
 
@@ -1156,6 +1171,7 @@ impl RenderOnce for Reorderable {
                 None => (None, None, Vec::new()),
             };
             if let Some(mark) = mark {
+                let mark = mark(window, cx);
                 header =
                     header.children(unfolding_mark(part(&gid, "mark"), mark, !open, window, cx));
             }
@@ -1181,6 +1197,7 @@ impl RenderOnce for Reorderable {
                         .test_support(),
                 );
             if let Some(trailing) = trailing {
+                let trailing = trailing(window, cx);
                 // Its own press: the heading's drag and fold are not its business.
                 header = header.child(
                     div()
