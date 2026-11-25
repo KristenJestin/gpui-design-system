@@ -11,6 +11,9 @@
 //! providers, the models of the chosen one, then the efforts of the chosen model, a column that
 //! folds away when it offers none.
 //!
+//! A provider whose models cannot be listed (it needs a sign-in) says a line in place of them, with
+//! an action ([`ProviderNote`]): it unfolds in the models column when the provider is looked at.
+//!
 //! The kit knows no provider: the screen gives the models the application knows ([`ModelEntry`]).
 
 use std::rc::Rc;
@@ -22,13 +25,14 @@ use gpui_kit::{
     RenderOnce, SharedString, StatefulInteractiveElement, Styled, TestSupportExt, Window, div, px,
 };
 
+use crate::button::Button;
 use crate::dropdown::Dropdown;
 use crate::field::Field;
 use crate::icons::{Icon, icon};
 use crate::interact::{fade, selectable};
 use crate::look::{Shaped as _, Surface, look};
 use crate::motion::{Motion, PANEL};
-use crate::reveal::{Shown, changed, drive};
+use crate::reveal::{Shown, changed, drive, presence};
 use crate::select::{Select, SelectOption};
 use crate::space;
 use crate::theme::{Palette, palette};
@@ -598,6 +602,8 @@ const EFFORTS_COLUMN: f32 = 140.;
 /// The height of an entry of the menu: the columns are as tall as their longest one whatever
 /// the choice, so that the menu does not change its height when the efforts fold away.
 const ROW: f32 = 30.;
+/// The rows a provider's line and its action take, at least, in a menu that has one.
+const NOTE_ROWS: usize = 4;
 
 /// The provider, the model and the effort in one picker. The screen owns what is chosen and
 /// gives it back on every frame; the menu's own state (open or not) the picker keeps.
@@ -774,6 +780,9 @@ impl RenderOnce for ModelPicker {
         let id = self.id.clone();
         let open = window.use_keyed_state(part(&id, "open"), cx, |_, _| false);
         let is_open = *open.read(cx);
+        // The provider with no model the menu is on: a look at its line, not a choice.
+        let looking_at =
+            window.use_keyed_state(part(&id, "looking"), cx, |_, _| None::<SharedString>);
         let at = match &self.chosen {
             Chosen::Model(provider, model) => self
                 .models
@@ -816,12 +825,13 @@ impl RenderOnce for ModelPicker {
             }
         };
         let close = {
-            let open = open.clone();
+            let (open, looking_at) = (open.clone(), looking_at.clone());
             move |cx: &mut App| {
                 open.update(cx, |open, cx| {
                     *open = false;
                     cx.notify();
                 });
+                looking_at.update(cx, |looking, _| *looking = None);
             }
         };
         let name = |value: &str| value.replace(['/', ' '], "-");
@@ -834,6 +844,23 @@ impl RenderOnce for ModelPicker {
             }
         }
         let now = current.as_ref().map(|m| m.provider.clone());
+        // A provider with no model is listed after the others, with its line.
+        let notes: Vec<ProviderNote> = self
+            .notes
+            .iter()
+            .filter(|n| !providers.iter().any(|(key, _)| *key == n.provider))
+            .cloned()
+            .collect();
+        providers.extend(
+            notes
+                .iter()
+                .map(|n| (n.provider.clone(), n.provider_title.clone())),
+        );
+        let looking = looking_at
+            .read(cx)
+            .clone()
+            .filter(|key| notes.iter().any(|n| n.provider == *key));
+        let on = looking.clone().or(now.clone());
         // The columns are as tall as the longest list they may hold.
         let rows = providers
             .len()
@@ -850,7 +877,9 @@ impl RenderOnce for ModelPicker {
                     .map(|m| m.efforts.len())
                     .max()
                     .unwrap_or(0),
-            );
+            )
+            // Room for a line and its action, so that the menu does not move when it is said.
+            .max(if notes.is_empty() { 0 } else { NOTE_ROWS });
         let column = |width: f32, heading: AnyElement, body: AnyElement| {
             div()
                 .w(px(width))
@@ -880,15 +909,25 @@ impl RenderOnce for ModelPicker {
 
         let mut entries: Vec<AnyElement> = Vec::new();
         for (key, title) in providers {
-            let chosen = now.as_ref() == Some(&key);
+            let chosen = on.as_ref() == Some(&key);
+            let current = now.as_ref() == Some(&key);
             let first = self.models.iter().find(|m| m.provider == key).cloned();
-            let report = report.clone();
+            let (report, looking_at, noted) = (
+                report.clone(),
+                looking_at.clone(),
+                notes.iter().any(|n| n.provider == key),
+            );
+            let looks = key.clone();
             entries.push(entry(
                 part(&id, &format!("provider-{}", name(&key))),
                 title,
                 chosen,
                 move |window, cx| {
-                    if !chosen && let Some(first) = &first {
+                    looking_at.update(cx, |looking, cx| {
+                        *looking = noted.then(|| looks.clone());
+                        cx.notify();
+                    });
+                    if !current && let Some(first) = &first {
                         report(first.chosen(), None, window, cx);
                     }
                 },
@@ -903,7 +942,7 @@ impl RenderOnce for ModelPicker {
 
         // The models of the chosen provider: the column fades in again when the provider changes.
         let models_id = part(&id, "models");
-        let said: SharedString = now.clone().unwrap_or_default();
+        let said: SharedString = on.clone().unwrap_or_default();
         let fading = changed(&ElementId::Name(models_id.clone()), &said, window, cx);
         crate::seen::note(&ElementId::Name(part(&id, "models-fade")), fading);
         let mut entries = Vec::new();
@@ -911,7 +950,7 @@ impl RenderOnce for ModelPicker {
             .models
             .iter()
             .enumerate()
-            .filter(|(_, m)| Some(&m.provider) == now.as_ref())
+            .filter(|(_, m)| Some(&m.provider) == on.as_ref())
         {
             let chosen = index == at;
             let (report, close, m) = (report.clone(), close.clone(), m.clone());
@@ -939,13 +978,52 @@ impl RenderOnce for ModelPicker {
                 p,
             ));
         }
+        // The line of a provider with no model unfolds in place of its models; it keeps the last
+        // one to show while it folds away.
+        let kept_note =
+            window.use_keyed_state(part(&id, "kept-note"), cx, |_, _| None::<ProviderNote>);
+        if let Some(note) = notes.iter().find(|n| Some(&n.provider) == looking.as_ref()) {
+            kept_note.update(cx, |kept, _| *kept = Some(note.clone()));
+        }
+        let note = kept_note.read(cx).clone().map(|note| {
+            let said = div()
+                .id(ElementId::Name(part(&id, "note-text")))
+                .aria_label(note.text.clone())
+                .text_size(px(12.))
+                .text_color(p.mute)
+                .child(note.text.clone())
+                .test_support();
+            let action = note.action.clone().map(|(label, act)| {
+                let close = close.clone();
+                Button::secondary(part(&id, "note-action"), label).on_click(move |_, window, cx| {
+                    act(window, cx);
+                    close(cx);
+                })
+            });
+            div()
+                .flex()
+                .flex_col()
+                .items_start()
+                .gap(space::SM)
+                .px(px(10.))
+                .pt(px(6.))
+                .child(said)
+                .children(action)
+        });
+        let note = presence(
+            ElementId::Name(part(&id, "note")),
+            looking.is_some(),
+            note.unwrap_or_else(div),
+        );
         let models_column = column(
             MODELS_COLUMN,
             section(part(&id, "models-label"), "Model", &p),
             div()
                 .id(ElementId::Name(models_id))
+                .relative()
                 .opacity(fading)
                 .child(body(entries))
+                .child(div().absolute().top_0().left_0().w_full().child(note))
                 .test_support()
                 .into_any_element(),
         );
@@ -955,7 +1033,14 @@ impl RenderOnce for ModelPicker {
         let kept = window.use_keyed_state(part(&id, "kept-efforts"), cx, |_, _| {
             Vec::<(SharedString, bool)>::new()
         });
-        if !efforts.is_empty() {
+        // A provider with no model has no effort to offer: the column folds as for a model that
+        // offers none.
+        let offered = if looking.is_some() {
+            Vec::new()
+        } else {
+            efforts.clone()
+        };
+        if !offered.is_empty() {
             let rows = efforts
                 .iter()
                 .map(|e| (e.clone(), level.as_ref() == Some(e)))
@@ -998,7 +1083,7 @@ impl RenderOnce for ModelPicker {
             .child(models_column)
             .child(sideways(
                 part(&id, "efforts"),
-                !efforts.is_empty(),
+                !offered.is_empty(),
                 ruled + EFFORTS_COLUMN,
                 efforts_column,
                 window,
@@ -1006,12 +1091,13 @@ impl RenderOnce for ModelPicker {
             ));
 
         let toggle = {
-            let open = open.clone();
+            let (open, looking_at) = (open.clone(), looking_at.clone());
             move |_: &mut Window, cx: &mut App| {
                 open.update(cx, |open, cx| {
                     *open = !*open;
                     cx.notify();
                 });
+                looking_at.update(cx, |looking, _| *looking = None);
             }
         };
         Dropdown::new(id, label)
