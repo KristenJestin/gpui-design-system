@@ -67,6 +67,11 @@ const NOT_CONTROLS: &[(&str, &str, &str)] = &[
         "a call on a `Button`, which sets its own hand while it can act",
     ),
     (
+        "src/model_choice.rs",
+        "Button::secondary(part(&id, \"note-action\"), label).on_click(move |_, window, cx| {",
+        "a call on a `Button`, which sets its own hand while it can act",
+    ),
+    (
         "src/page.rs",
         ".on_click(move |_, window, cx| on_click(window, cx));",
         "a call on a `Button`, which sets its own hand while it can act",
