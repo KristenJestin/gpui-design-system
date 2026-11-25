@@ -8,15 +8,16 @@ use std::f32::consts::{FRAC_PI_2, PI};
 
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    AnyElement, App, ClickEvent, Div, ElementId, Entity, FontWeight, HighlightStyle,
+    AnyElement, App, ClickEvent, Div, ElementId, Entity, FontWeight, HighlightStyle, Hsla,
     InteractiveElement, IntoElement, ParentElement, Pixels, RenderOnce, ScrollHandle, SharedString,
     Stateful, StatefulInteractiveElement, Styled, StyledText, TestSupportExt, Transformation,
     Window, div, px, radians,
 };
 
-use crate::color::mix;
+use crate::color::{mix, over};
 use crate::cut::tipped_when_cut;
 use crate::icons::{Icon, icon};
+use crate::ids::part;
 use crate::interact::{choose, fade, feel, wire, wire_with};
 use crate::listing::{Item, Placement};
 use crate::look::{Shaped as _, Side, Surface, Which, look};
@@ -48,7 +49,8 @@ pub struct TreeRow {
     /// A faint line under the title: the row is two lines high.
     second: Option<AnyElement>,
     /// A mark before the title, where a folder or a branch has its icon.
-    leading: Option<AnyElement>,
+    leading: Option<Box<dyn FnOnce(Hsla) -> AnyElement>>,
+    foldable: bool,
     on_click: Option<OnClick>,
     on_toggle: Option<OnClick>,
 }
@@ -75,6 +77,7 @@ impl TreeRow {
             actions: None,
             second: None,
             leading: None,
+            foldable: true,
             on_click: None,
             on_toggle: None,
         }
@@ -87,8 +90,24 @@ impl TreeRow {
     }
 
     /// A mark before the title: what kind of row it is, said in its own tooltip.
-    pub fn leading(mut self, element: impl IntoElement) -> Self {
-        self.leading = Some(element.into_any_element());
+    pub fn leading(self, element: impl IntoElement) -> Self {
+        let element = element.into_any_element();
+        self.leading_with(move |_| element)
+    }
+
+    /// [`leading`](Self::leading) for a mark that sits on the row's fill: `build` is handed the
+    /// colour the row is drawn in now (the hover and chosen fade laid over the tree's own
+    /// colour, opaque), so that a mark can cut itself out in it, like a machine mark's `.on(fill)`.
+    pub fn leading_with<E: IntoElement>(mut self, build: impl FnOnce(Hsla) -> E + 'static) -> Self {
+        self.leading = Some(Box::new(move |fill| build(fill).into_any_element()));
+        self
+    }
+
+    /// Whether the row has a level to fold (true unless said). A row with nothing to fold keeps
+    /// its chevron's place: the chevron fades out where it stands over [`PANEL`] and in again
+    /// when something comes, the title never moving, and a click on its place is the row's.
+    pub fn foldable(mut self, foldable: bool) -> Self {
+        self.foldable = foldable;
         self
     }
 
@@ -155,6 +174,8 @@ impl RenderOnce for TreeRow {
             mix(mix(p.mute, p.text, now.hover), p.text, chosen)
         };
         let background = mix(p.hover.opacity(now.hover), p.sel, chosen);
+        // What a mark in the leading slot sits on: the fill over the tree's own colour.
+        let fill = over(background, background.a, p.side);
         let chevron_turn = self
             .expanded
             .map(|open| turning(self.id.clone(), open, window, cx));
@@ -191,6 +212,10 @@ impl RenderOnce for TreeRow {
                 // Folded (1) points right as a first-level row's does; open (0) points up.
                 true => -PI + FRAC_PI_2 * turn,
             };
+            // A row with nothing to fold keeps the chevron's place and fades it, so that the
+            // title never moves and nothing pops.
+            let shown = fade(part(&self.id, "foldable"), self.foldable, PANEL, window, cx);
+            crate::seen::note(&part(&self.id, "chevron"), shown);
             let chevron = icon(Icon::Chevron)
                 .size(px(12.))
                 .text_color(p.faint)
@@ -201,16 +226,19 @@ impl RenderOnce for TreeRow {
                     .flex_none()
                     .p(px(4.))
                     .m(px(-4.))
-                    .cursor_pointer()
-                    // The row's own click is the page; this one only folds.
-                    .on_click(move |event, window, cx| {
-                        cx.stop_propagation();
-                        on_toggle(event, window, cx);
+                    .opacity(shown)
+                    // The row's own click is the page; this one only folds, and only when there
+                    // is something to fold: otherwise the click is the row's.
+                    .when(self.foldable, |d| {
+                        d.cursor_pointer().on_click(move |event, window, cx| {
+                            cx.stop_propagation();
+                            on_toggle(event, window, cx);
+                        })
                     })
                     .child(chevron)
                     .test_support()
                     .into_any_element(),
-                None => chevron.into_any_element(),
+                None => chevron.opacity(shown).into_any_element(),
             };
             match top || self.upward {
                 true => row = row.child(chevron),
@@ -218,7 +246,7 @@ impl RenderOnce for TreeRow {
             }
         }
         if let Some(leading) = self.leading {
-            row = row.child(leading);
+            row = row.child(leading(fill));
         }
         // A title that changes (one the user or a program named) fades to the new one.
         let title_id = ElementId::Name(format!("{}-title", self.id).into());
