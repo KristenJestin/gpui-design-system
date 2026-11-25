@@ -297,6 +297,16 @@ mod tests {
     }
 
     #[test]
+    fn the_cyan_of_a_theme_is_what_waits_on_a_person_and_its_absence_falls_back_to_the_kit_s() {
+        let theme = "background = \"#101010\"\nforeground = \"#d0d0d0\"\naccent = \"#88aaff\"\n";
+        let with = palette_from_toml(&format!("{theme}color6 = \"#5fd7d7\"\n")).unwrap();
+        assert_eq!(with.away, hex(0x5fd7d7));
+        assert!(contrast(with.away, with.away_bg) >= TEXT_CONTRAST);
+        let without = palette_from_toml(theme).unwrap();
+        assert_eq!(without.away, Palette::base().away);
+    }
+
+    #[test]
     fn a_dim_magenta_is_moved_until_what_waits_reads_on_its_tint() {
         let dim = hex(0x4a2a5a);
         let p = palette_from_toml(
