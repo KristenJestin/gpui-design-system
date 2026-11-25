@@ -7,6 +7,9 @@
 use std::f32::consts::{FRAC_PI_2, PI};
 
 use gpui_kit::prelude::FluentBuilder as _;
+use std::cell::Cell;
+use std::rc::Rc;
+
 use gpui_kit::{
     AnyElement, App, ClickEvent, Div, ElementId, Entity, FontWeight, HighlightStyle, Hsla,
     InteractiveElement, IntoElement, ParentElement, Pixels, RenderOnce, ScrollHandle, SharedString,
@@ -23,7 +26,7 @@ use crate::listing::{Item, Placement};
 use crate::look::{Shaped as _, Side, Surface, Which, look};
 use crate::menu::Menu;
 use crate::motion::{HOVER, Motion, PANEL};
-use crate::reveal::changed;
+use crate::reveal::{Shown, changed, drive};
 use crate::tag::Tag;
 use crate::theme::{palette, radius};
 use crate::typography::Type;
@@ -516,6 +519,80 @@ pub fn section_label(text: &str, cx: &App) -> impl IntoElement {
         .child(text.to_uppercase())
 }
 
+/// What a list row remembers of its tags: how many slots it has drawn.
+struct Slots {
+    count: usize,
+}
+
+/// The tags of a list row, each in its own slot: a tag that comes unfolds sideways with the gap
+/// before it and fades in, one that leaves folds away from its place showing what it said (over
+/// [`PANEL`]), and the others stay put. A slot is its own state, kept while a tag leaves, so the
+/// row's last tags are drawn again while they fold. At rest it is the tag and nothing else.
+fn tag_slots(
+    id: &ElementId,
+    tags: &[SharedString],
+    tags_shown: f32,
+    gap: f32,
+    window: &mut Window,
+    cx: &mut App,
+) -> Vec<AnyElement> {
+    let fresh = Rc::new(Cell::new(false));
+    let seen_first = fresh.clone();
+    let slots = window.use_keyed_state(part(id, "tags"), cx, move |_, _| {
+        seen_first.set(true);
+        Slots { count: 0 }
+    });
+    let count = tags.len().max(slots.read(cx).count);
+    let mut drawn = Vec::new();
+    let mut live = 0;
+    for index in 0..count {
+        let tag = tags.get(index).cloned();
+        let present = tag.is_some();
+        // A tag that is new to a row that already runs unfolds; one the row came with is there.
+        let rest = present && fresh.get();
+        let state =
+            window.use_keyed_state(part(id, &format!("tag-{index}-slot")), cx, move |_, _| {
+                Shown::new(crate::motion::Motion::settled(if rest { 1.0 } else { 0.0 }))
+            });
+        let text = state.update(cx, |shown, _| {
+            if let Some(tag) = tag {
+                shown.last = tag;
+            }
+            shown.last.clone()
+        });
+        let at = drive(&state, present, window, cx);
+        if !present && !at.running {
+            continue;
+        }
+        live = index + 1;
+        let tag = Tag::new(ElementId::Name(format!("{id}-tag-{index}").into()), text)
+            .shown(tags_shown)
+            .measured(at.width.clone());
+        // At rest it is the tag and nothing around it, which the row lays out as it always did.
+        if present && !at.running {
+            drawn.push(tag.before(gap).into_any_element());
+            continue;
+        }
+        // Moving, it keeps its own size inside the room it has, which grows or shrinks with the
+        // gap before it.
+        drawn.push(
+            div()
+                .id(part(id, &format!("tag-{index}-slot")))
+                .flex()
+                .flex_none()
+                .w(at.width.get() * at.t)
+                .ml(px(gap * at.t))
+                .overflow_hidden()
+                .opacity(at.t)
+                .child(div().flex_none().child(tag))
+                .test_support()
+                .into_any_element(),
+        );
+    }
+    slots.update(cx, |slots, _| slots.count = live);
+    drawn
+}
+
 #[derive(IntoElement)]
 pub struct ListRow {
     id: ElementId,
@@ -598,7 +675,8 @@ impl ListRow {
         self
     }
 
-    /// A small bordered mono tag after the title: a path, a kind.
+    /// A small bordered mono tag after the title: a path, a kind. One that comes after the row was
+    /// drawn unfolds with its gap, one that goes folds away, and one whose text changes fades.
     pub fn tag(mut self, tag: impl Into<SharedString>) -> Self {
         self.tags.push(tag.into());
         self
@@ -750,16 +828,8 @@ impl RenderOnce for ListRow {
         } else {
             row.gap(px(10.)).px(px(10.)).py(px(8.))
         };
-        let tags_shown = self.tags_shown;
-        let tags: Vec<AnyElement> = self
-            .tags
-            .into_iter()
-            .enumerate()
-            .map(|(index, tag)| {
-                let id = ElementId::Name(format!("{}-tag-{index}", self.id).into());
-                Tag::new(id, tag).shown(tags_shown).into_any_element()
-            })
-            .collect();
+        let gap = if self.in_card { 8. } else { 6. };
+        let tags = tag_slots(&self.id, &self.tags, self.tags_shown, gap, window, cx);
         let mono = self.mono;
         let mut row = row
             .child(
@@ -772,8 +842,9 @@ impl RenderOnce for ListRow {
             )
             .child({
                 let mut whole = self.title.clone();
+                let title_id = ElementId::Name(format!("{}-title", self.id).into());
                 let name = div()
-                    .id(ElementId::Name(format!("{}-title", self.id).into()))
+                    .id(title_id.clone())
                     .font_weight(FontWeight::MEDIUM)
                     .text_ellipsis()
                     .overflow_hidden()
@@ -804,11 +875,15 @@ impl RenderOnce for ListRow {
                         }
                         None => self.title.clone().into_any_element(),
                     });
-                let name = tipped_when_cut(name, whole, window, cx);
+                // A title that is filled in or renamed after the row was drawn fades to the new one,
+                // as a tree row's does.
+                let fading = changed(&title_id, &whole, window, cx);
+                crate::seen::note(&title_id, fading);
+                let name = tipped_when_cut(name.opacity(fading), whole, window, cx);
+                // The gap before a tag comes and goes with the tag, so each child carries its own.
                 let title = div()
                     .flex()
                     .items_baseline()
-                    .gap(px(if self.in_card { 8. } else { 6. }))
                     .overflow_hidden()
                     .whitespace_nowrap()
                     .child(name)
@@ -817,6 +892,7 @@ impl RenderOnce for ListRow {
                         d.child(
                             div()
                                 .id(ElementId::Name(format!("{}-detail", self.id).into()))
+                                .ml(px(gap))
                                 .mono(11.5)
                                 .text_color(p.faint)
                                 .aria_label(detail.clone())
