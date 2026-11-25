@@ -1,7 +1,8 @@
 //! `TreeRow`: a row with nothing to fold keeps its chevron's place and fades the chevron in or out
 //! over `PANEL` where it stands, never a pop and never a shift of the title; what the row draws in
-//! its leading slot is handed the row's current fill, so that a child can sit on it. On GPUI's
-//! test platform.
+//! its leading slot is handed the row's current fill, so that a child can sit on it; a title said
+//! faint is drawn in the faint ink, which fades in and out over `HOVER` and which hover and choice
+//! still lift. On GPUI's test platform.
 
 mod common;
 
@@ -17,7 +18,7 @@ use gpui_design_system::{Icon, MachineMark, MachineState, TreeRow, toggle_id};
 use gpui_kit::test::TestWindowExt;
 use gpui_kit::{
     Bounds, Context, Entity, Hsla, IntoElement, ParentElement, Pixels, Render, Styled,
-    TestAppContext, VisualTestContext, Window, div, px,
+    TestAppContext, VisualTestContext, Window, div, point, px,
 };
 
 /// What a row was asked to draw and what a click reached.
@@ -31,6 +32,7 @@ struct Reached {
 struct Tree {
     foldable: bool,
     selected: bool,
+    faint: bool,
     reached: Reached,
 }
 
@@ -47,6 +49,7 @@ impl Render for Tree {
                 .expanded(true)
                 .foldable(self.foldable)
                 .selected(self.selected)
+                .faint(self.faint)
                 .on_toggle(move |_, _, _| folded.set(folded.get() + 1))
                 .on_click(move |_, _, _| opened.set(opened.get() + 1))
                 .leading_with(move |on| {
@@ -69,6 +72,15 @@ fn tree(
     reduce: bool,
     cx: &mut TestAppContext,
 ) -> (Entity<Tree>, Reached, &mut VisualTestContext) {
+    start(foldable, false, reduce, cx)
+}
+
+fn start(
+    foldable: bool,
+    faint: bool,
+    reduce: bool,
+    cx: &mut TestAppContext,
+) -> (Entity<Tree>, Reached, &mut VisualTestContext) {
     init(cx);
     cx.update(|cx| cx.set_reduce_motion(reduce));
     let reached = Reached::default();
@@ -76,8 +88,11 @@ fn tree(
     let (view, cx) = cx.add_window_view(move |_, _| Tree {
         foldable,
         selected: false,
+        faint,
         reached: shared,
     });
+    // The pointer rests away from the row, so that none is hovered that did not ask to be.
+    cx.simulate_mouse_move(point(px(600.), px(400.)), None, Default::default());
     cx.update(|window, cx| window.render_frame(cx));
     (view, reached, cx)
 }
@@ -233,6 +248,100 @@ fn a_machine_mark_in_the_leading_slot_cuts_its_badge_out_in_the_row_s_fill(
     assert!(
         !same(cut, cx.update(|_, cx| palette(cx)).side),
         "and not the tree's colour on a hovered row"
+    );
+}
+
+/// The ink the row's title was last drawn in.
+fn ink(cx: &mut VisualTestContext) -> Hsla {
+    cx.update(|window, cx| window.render_frame(cx));
+    colour("tree-row-title").expect("the title notes its ink")
+}
+
+#[gpui_kit::test]
+fn a_faint_row_draws_its_title_in_the_faint_ink(cx: &mut TestAppContext) {
+    let (_, _, cx) = start(true, true, false, cx);
+    let p = cx.update(|_, cx| palette(cx));
+    advance(cx, PANEL * 2);
+    assert_eq!(
+        pending_frames(cx),
+        0,
+        "a row first drawn faint is simply faint"
+    );
+    assert!(same(ink(cx), p.faint), "a title said faint is drawn faint");
+}
+
+#[gpui_kit::test]
+fn a_row_that_is_not_faint_keeps_the_ink_of_its_level(cx: &mut TestAppContext) {
+    let (_, _, cx) = tree(true, false, cx);
+    let p = cx.update(|_, cx| palette(cx));
+    assert!(
+        same(ink(cx), p.text),
+        "a first-level row's title is the text ink"
+    );
+}
+
+#[gpui_kit::test]
+fn a_row_that_becomes_faint_fades_its_ink_over_hover(cx: &mut TestAppContext) {
+    let (view, _, cx) = tree(true, false, cx);
+    let p = cx.update(|_, cx| palette(cx));
+    let before = ink(cx);
+
+    change(&view, cx, |tree| tree.faint = true);
+    assert!(pending_frames(cx) > 0, "the ink fades");
+    advance(cx, HOVER / 3);
+    let partway = ink(cx);
+    assert!(
+        !same(partway, before) && !same(partway, p.faint),
+        "part way: {partway:?}"
+    );
+
+    advance(cx, HOVER * 2);
+    assert!(same(ink(cx), p.faint), "arrived");
+    assert_eq!(pending_frames(cx), 0, "nothing is drawn once it arrived");
+
+    change(&view, cx, |tree| tree.faint = false);
+    advance(cx, HOVER / 3);
+    assert!(!same(ink(cx), p.faint), "and fades back");
+    advance(cx, HOVER * 2);
+    assert!(same(ink(cx), before));
+}
+
+#[gpui_kit::test]
+fn with_reduced_motion_a_title_that_becomes_faint_jumps(cx: &mut TestAppContext) {
+    let (view, _, cx) = tree(true, true, cx);
+    change(&view, cx, |tree| tree.faint = true);
+    advance(cx, std::time::Duration::from_millis(16));
+    let p = cx.update(|_, cx| palette(cx));
+    assert!(same(ink(cx), p.faint));
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn a_faint_row_hovered_keeps_its_hover_fill(cx: &mut TestAppContext) {
+    let (_, reached, cx) = start(true, true, false, cx);
+    let p = cx.update(|_, cx| palette(cx));
+    cx.update(|window, cx| window.hover("tree-row", cx));
+    advance(cx, HOVER * 3);
+    assert!(
+        same(reached.fill.borrow().unwrap(), over(p.hover, 1.0, p.side)),
+        "the hover fill is drawn under a faint title"
+    );
+    assert!(same(ink(cx), p.text), "and the pointer brings the title up");
+}
+
+#[gpui_kit::test]
+fn a_faint_row_chosen_keeps_its_chosen_fill(cx: &mut TestAppContext) {
+    let (view, reached, cx) = start(true, true, false, cx);
+    let p = cx.update(|_, cx| palette(cx));
+    change(&view, cx, |tree| tree.selected = true);
+    advance(cx, PANEL * 2);
+    assert!(
+        same(reached.fill.borrow().unwrap(), p.sel),
+        "the chosen fill"
+    );
+    assert!(
+        same(ink(cx), p.text),
+        "and the chosen title is read in full"
     );
 }
 
