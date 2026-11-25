@@ -123,6 +123,7 @@ pub fn palette_from_toml(text: &str) -> Result<Palette, String> {
     let blue = get(&["blue", "color4"]).unwrap_or(base.run);
     let yellow = get(&["yellow", "color3"]).unwrap_or(base.wait);
     let violet = get(&["magenta", "color5"]).unwrap_or(base.pend);
+    let cyan = get(&["cyan", "color6"]).unwrap_or(base.away);
     let green = get(&["green", "color2"]).unwrap_or(base.ok);
     let red = get(&["red", "color1"]).unwrap_or(base.fail);
     let tint = |c: Hsla| over(c, 0.15, bg);
@@ -156,6 +157,8 @@ pub fn palette_from_toml(text: &str) -> Result<Palette, String> {
         wait_line: over(yellow, 0.3, lighter),
         pend: violet,
         pend_bg: tint(violet),
+        away: cyan,
+        away_bg: tint(cyan),
         ok: green,
         ok_bg: tint(green),
         fail: red,

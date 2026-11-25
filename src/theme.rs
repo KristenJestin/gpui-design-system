@@ -58,6 +58,10 @@ pub struct Palette {
     /// the orange of `wait`, the blue of `run` nor the grey of rest.
     pub pend: Hsla,
     pub pend_bg: Hsla,
+    /// Waits on a person: someone else has the next move. Neither the violet of `pend`, which
+    /// comes by itself, nor the orange of `wait`.
+    pub away: Hsla,
+    pub away_bg: Hsla,
     pub ok: Hsla,
     pub ok_bg: Hsla,
     pub fail: Hsla,
@@ -127,6 +131,8 @@ impl Palette {
             wait_line: hex(0xe8cf9e),
             pend: hex(0x5b34c2),
             pend_bg: hex(0xf0eafb),
+            away: hex(0x0a6b68),
+            away_bg: hex(0xdff3f1),
             ok: hex(0x17703a),
             ok_bg: hex(0xe2f2e7),
             fail: hex(0xb3261e),
@@ -171,6 +177,8 @@ impl Palette {
             wait_line: hex(0x4a3511),
             pend: hex(0xb69cff),
             pend_bg: hex(0x251d3d),
+            away: hex(0x4fd1c5),
+            away_bg: hex(0x10292a),
             ok: hex(0x4ade80),
             ok_bg: hex(0x15291c),
             fail: hex(0xf87171),
@@ -195,6 +203,7 @@ impl Palette {
         self.wait = readable(self.wait, self.wait_bg, min);
         self.on_wait = readable(self.on_wait, self.wait, min);
         self.pend = readable(self.pend, self.pend_bg, min);
+        self.away = readable(self.away, self.away_bg, min);
         self.ok = readable(self.ok, self.ok_bg, min);
         self.fail = readable(self.fail, self.fail_bg, min);
         self.on_fail = readable(self.on_fail, self.fail, min);
@@ -233,6 +242,8 @@ impl Palette {
             wait_line: m(self.wait_line, to.wait_line),
             pend: m(self.pend, to.pend),
             pend_bg: m(self.pend_bg, to.pend_bg),
+            away: m(self.away, to.away),
+            away_bg: m(self.away_bg, to.away_bg),
             ok: m(self.ok, to.ok),
             ok_bg: m(self.ok_bg, to.ok_bg),
             fail: m(self.fail, to.fail),
