@@ -58,6 +58,10 @@ pub struct Palette {
     /// the orange of `wait`, the blue of `run` nor the grey of rest.
     pub pend: Hsla,
     pub pend_bg: Hsla,
+    /// Waits on a person: someone else has the next move. Neither the violet of `pend`, which
+    /// comes by itself, nor the orange of `wait`.
+    pub away: Hsla,
+    pub away_bg: Hsla,
     pub ok: Hsla,
     pub ok_bg: Hsla,
     pub fail: Hsla,
@@ -127,6 +131,8 @@ impl Palette {
             wait_line: hex(0xe8cf9e),
             pend: hex(0x5b34c2),
             pend_bg: hex(0xf0eafb),
+            away: hex(0x0a6b68),
+            away_bg: hex(0xdff3f1),
             ok: hex(0x17703a),
             ok_bg: hex(0xe2f2e7),
             fail: hex(0xb3261e),
@@ -171,6 +177,8 @@ impl Palette {
             wait_line: hex(0x4a3511),
             pend: hex(0xb69cff),
             pend_bg: hex(0x251d3d),
+            away: hex(0x4fd1c5),
+            away_bg: hex(0x10292a),
             ok: hex(0x4ade80),
             ok_bg: hex(0x15291c),
             fail: hex(0xf87171),
@@ -195,6 +203,7 @@ impl Palette {
         self.wait = readable(self.wait, self.wait_bg, min);
         self.on_wait = readable(self.on_wait, self.wait, min);
         self.pend = readable(self.pend, self.pend_bg, min);
+        self.away = readable(self.away, self.away_bg, min);
         self.ok = readable(self.ok, self.ok_bg, min);
         self.fail = readable(self.fail, self.fail_bg, min);
         self.on_fail = readable(self.on_fail, self.fail, min);
@@ -233,6 +242,8 @@ impl Palette {
             wait_line: m(self.wait_line, to.wait_line),
             pend: m(self.pend, to.pend),
             pend_bg: m(self.pend_bg, to.pend_bg),
+            away: m(self.away, to.away),
+            away_bg: m(self.away_bg, to.away_bg),
             ok: m(self.ok, to.ok),
             ok_bg: m(self.ok_bg, to.ok_bg),
             fail: m(self.fail, to.fail),
@@ -422,6 +433,46 @@ mod tests {
     }
 
     #[test]
+    fn what_waits_on_a_person_has_a_colour_of_its_own_that_reads_in_both_shades() {
+        for shade in [Shade::Dark, Shade::Light] {
+            let p = Palette::own(shade);
+            // Not what comes by itself, not the user's turn, not running, not the grey of rest.
+            for (name, other) in [
+                ("pend", p.pend),
+                ("run", p.run),
+                ("wait", p.wait),
+                ("ok", p.ok),
+                ("fail", p.fail),
+                ("mute", p.mute),
+                ("faint", p.faint),
+                ("acc", p.acc),
+            ] {
+                assert_ne!(p.away, other, "{shade:?}: away is not {name}");
+            }
+            let surfaces = [
+                p.body, p.bg, p.rail, p.side, p.card, p.card2, p.hover, p.sel, p.shell, p.field,
+            ];
+            for surface in surfaces {
+                let ratio = contrast(p.away, surface);
+                assert!(
+                    ratio >= TEXT_CONTRAST,
+                    "{shade:?}: away on a surface {ratio:.2}"
+                );
+            }
+            let ratio = contrast(p.away, p.away_bg);
+            assert!(
+                ratio >= TEXT_CONTRAST,
+                "{shade:?}: away on away_bg {ratio:.2}"
+            );
+            assert_eq!(
+                p.with_readable_inks(),
+                p,
+                "{shade:?}: it needs no correction"
+            );
+        }
+    }
+
+    #[test]
     fn the_shadows_of_light_are_lighter_and_those_of_dark_are_unchanged() {
         let (light, dark) = (Palette::own(Shade::Light), Palette::base());
         // Dark: a black at full strength, each overlay takes its own share, as before.
@@ -467,6 +518,7 @@ mod tests {
             ("run", light.run),
             ("wait", light.wait),
             ("pend", light.pend),
+            ("away", light.away),
             ("ok", light.ok),
             ("fail", light.fail),
         ];
@@ -485,6 +537,7 @@ mod tests {
             ("wait", light.wait, light.wait_bg),
             ("on_wait", light.on_wait, light.wait),
             ("pend", light.pend, light.pend_bg),
+            ("away", light.away, light.away_bg),
             ("ok", light.ok, light.ok_bg),
             ("fail", light.fail, light.fail_bg),
             ("on_fail", light.on_fail, light.fail),
