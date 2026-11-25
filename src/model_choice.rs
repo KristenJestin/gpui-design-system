@@ -126,6 +126,42 @@ pub enum Chosen {
 }
 
 type OnChoose = Rc<dyn Fn(Chosen, Option<SharedString>, &mut Window, &mut App) + 'static>;
+type OnAct = Rc<dyn Fn(&mut Window, &mut App) + 'static>;
+
+/// A line the picker says in place of a provider's models, which it has none to offer (they
+/// cannot be listed): a short text and, optionally, an action that leaves the picker.
+#[derive(Clone)]
+pub struct ProviderNote {
+    provider: SharedString,
+    provider_title: SharedString,
+    text: SharedString,
+    action: Option<(SharedString, OnAct)>,
+}
+
+impl ProviderNote {
+    pub fn new(
+        provider: impl Into<SharedString>,
+        provider_title: impl Into<SharedString>,
+        text: impl Into<SharedString>,
+    ) -> Self {
+        Self {
+            provider: provider.into(),
+            provider_title: provider_title.into(),
+            text: text.into(),
+            action: None,
+        }
+    }
+
+    /// The action under the text (`label`), called when it is clicked; the menu closes after it.
+    pub fn action(
+        mut self,
+        label: impl Into<SharedString>,
+        f: impl Fn(&mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.action = Some((label.into(), Rc::new(f)));
+        self
+    }
+}
 
 /// The first option: the rule of a screen that inherits Settings' value, and what it gives today.
 #[derive(Clone)]
@@ -577,6 +613,7 @@ pub struct ModelPicker {
     chosen: Chosen,
     effort: Option<SharedString>,
     models: Vec<ModelEntry>,
+    notes: Vec<ProviderNote>,
     on_choose: Option<OnChoose>,
 }
 
@@ -590,6 +627,7 @@ impl ModelPicker {
             chosen,
             effort: None,
             models: Vec::new(),
+            notes: Vec::new(),
             on_choose: None,
         }
     }
@@ -598,6 +636,14 @@ impl ModelPicker {
     /// first model.
     pub fn models(mut self, models: impl IntoIterator<Item = ModelEntry>) -> Self {
         self.models = models.into_iter().collect();
+        self
+    }
+
+    /// The providers that offer no model, each with the line the picker says in place of its
+    /// models. They are listed after the providers of the models; a note for a provider that has
+    /// a model is not used.
+    pub fn notes(mut self, notes: impl IntoIterator<Item = ProviderNote>) -> Self {
+        self.notes = notes.into_iter().collect();
         self
     }
 

@@ -97,7 +97,7 @@ pub use look::{Corners, Fonts, Look, Shadow, Sizes, look};
 pub use machine_mark::{MachineMark, MachineState, MarkSize};
 pub use menu::Menu;
 pub use modal::Modal;
-pub use model_choice::{Chosen, ModelChoice, ModelEntry, ModelPicker};
+pub use model_choice::{Chosen, ModelChoice, ModelEntry, ModelPicker, ProviderNote};
 pub use page::{EmptyLine, PageHeader, Section};
 pub use pager::{Dots, Sliding, sliding};
 pub use path::path_line;

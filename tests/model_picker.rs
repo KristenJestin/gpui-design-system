@@ -5,13 +5,13 @@
 
 mod common;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use common::{advance, init, pending_frames};
 use gpui_design_system::motion::{ENTER, HOVER, PANEL};
 use gpui_design_system::seen::seen;
-use gpui_design_system::{Chosen, ModelEntry, ModelPicker};
+use gpui_design_system::{Chosen, ModelEntry, ModelPicker, ProviderNote};
 use gpui_kit::test::{TestQueryExt as _, TestWindowExt};
 use gpui_kit::{
     Context, Entity, IntoElement, ParentElement, Render, SharedString, Styled, TestAppContext,
@@ -27,6 +27,8 @@ struct Host {
     chosen: Chosen,
     effort: Option<SharedString>,
     seen: Seen,
+    /// Whether a provider with no model, `dusk`, says a line, and how often its action ran.
+    note: Option<Rc<Cell<usize>>>,
 }
 
 fn models() -> Vec<ModelEntry> {
@@ -46,8 +48,13 @@ fn models() -> Vec<ModelEntry> {
 impl Render for Host {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let (this, seen) = (cx.entity().downgrade(), self.seen.clone());
+        let acted = self.note.clone();
         let picker = ModelPicker::new("picker", self.chosen.clone())
             .models(models())
+            .notes(acted.map(|acted| {
+                ProviderNote::new("dusk", "Dusk", "Dusk's models need you to sign in.")
+                    .action("Sign in", move |_, _| acted.set(acted.get() + 1))
+            }))
             .effort(self.effort.clone())
             .on_choose(move |chosen, effort, _, cx| {
                 seen.borrow_mut().push((chosen.clone(), effort.clone()));
@@ -89,6 +96,7 @@ fn placed(
         chosen,
         effort: None,
         seen: given,
+        note: None,
     });
     cx.simulate_resize(size(px(900.), px(700.)));
     cx.update(|window, cx| window.render_frame(cx));
@@ -514,4 +522,172 @@ fn a_window_narrower_than_the_menu_keeps_it_inside(cx: &mut TestAppContext) {
         menu.left() >= px(0.) && menu.right() <= viewport.width,
         "{menu:?} in {viewport:?}"
     );
+}
+
+// ── A provider with no model says a line in place of its models ───────────────────────────────
+
+/// A picker whose provider `dusk` offers no model: it says its line, with an action counted by
+/// the cell.
+fn noted(cx: &mut TestAppContext) -> (&mut VisualTestContext, Seen, Rc<Cell<usize>>) {
+    let (view, cx, seen) = host(cx, aster());
+    let acted = Rc::new(Cell::new(0));
+    view.update(cx, |host, cx| {
+        host.note = Some(acted.clone());
+        cx.notify();
+    });
+    cx.update(|window, cx| window.render_frame(cx));
+    (cx, seen, acted)
+}
+
+#[gpui_kit::test]
+fn a_provider_with_no_model_is_listed_after_the_others(cx: &mut TestAppContext) {
+    let (cx, _, _) = noted(cx);
+    open(cx);
+    assert_eq!(label("picker-provider-dusk", cx).as_deref(), Some("Dusk"));
+    assert_eq!(selected("picker-provider-dusk", cx), Some(false));
+    let (last, note) = (
+        bounds("picker-provider-cinder", cx),
+        bounds("picker-provider-dusk", cx),
+    );
+    assert!(
+        last.bottom() <= note.top(),
+        "after the last: {last:?} {note:?}"
+    );
+    assert!(
+        !shown("picker-note-text", cx),
+        "its line waits to be asked for"
+    );
+}
+
+#[gpui_kit::test]
+fn choosing_a_provider_with_no_model_says_its_line_in_place_of_models(cx: &mut TestAppContext) {
+    let (cx, seen, _) = noted(cx);
+    open(cx);
+    click("picker-provider-dusk", cx);
+    assert!(seen.borrow().is_empty(), "no model is chosen by it");
+    assert_eq!(
+        label("picker-note-text", cx).as_deref(),
+        Some("Dusk's models need you to sign in.")
+    );
+    assert_eq!(selected("picker-provider-dusk", cx), Some(true));
+    assert_eq!(selected("picker-provider-aster", cx), Some(false));
+    assert!(
+        !shown("picker-model-aster-spark", cx),
+        "the models are gone"
+    );
+    assert!(!shown("picker-effort-high", cx), "so are the efforts");
+    assert!(shown("picker-menu", cx), "the menu stays open");
+    assert_eq!(
+        label("picker", cx).as_deref(),
+        Some("Aster · Lumen 2 · high"),
+        "the choice is the same"
+    );
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn the_line_unfolds_and_folds_away_with_the_motion_of_the_kit(cx: &mut TestAppContext) {
+    let (cx, _, _) = noted(cx);
+    open(cx);
+    let height = |cx: &mut VisualTestContext| bounds("picker-note", cx).size.height;
+    cx.update(|window, cx| window.click("picker-provider-dusk", cx));
+    advance(cx, PANEL / 3);
+    let midway = height(cx);
+    advance(cx, PANEL * 2);
+    let whole = height(cx);
+    assert!(
+        px(0.) < midway && midway < whole,
+        "it unfolds: {midway:?} of {whole:?}"
+    );
+    assert_eq!(seen("picker-models-fade"), Some(1.0));
+    cx.update(|window, cx| window.click("picker-provider-aster", cx));
+    advance(cx, PANEL / 3);
+    let folding = height(cx);
+    assert!(
+        px(0.) < folding && folding < whole,
+        "it folds, not vanishes: {folding:?} of {whole:?}"
+    );
+    advance(cx, PANEL * 2);
+    assert!(!shown("picker-note-text", cx));
+    assert_eq!(selected("picker-provider-aster", cx), Some(true));
+    assert!(shown("picker-model-aster-spark", cx), "the models are back");
+    assert_eq!(pending_frames(cx), 0);
+}
+
+#[gpui_kit::test]
+fn the_models_column_fades_to_the_line_and_back(cx: &mut TestAppContext) {
+    let (cx, _, _) = noted(cx);
+    open(cx);
+    cx.update(|window, cx| window.click("picker-provider-dusk", cx));
+    advance(cx, HOVER / 3);
+    let midway = seen("picker-models-fade").unwrap();
+    assert!(midway < 1.0, "the line fades in: {midway}");
+    advance(cx, HOVER * 2);
+    assert_eq!(seen("picker-models-fade"), Some(1.0));
+}
+
+#[gpui_kit::test]
+fn the_line_s_action_runs_and_closes_the_menu(cx: &mut TestAppContext) {
+    let (cx, seen, acted) = noted(cx);
+    open(cx);
+    click("picker-provider-dusk", cx);
+    assert_eq!(label("picker-note-action", cx).as_deref(), Some("Sign in"));
+    assert_eq!(acted.get(), 0);
+    cx.update(|window, cx| window.click("picker-note-action", cx));
+    assert_eq!(acted.get(), 1);
+    advance(cx, ENTER * 2);
+    assert!(!shown("picker-menu", cx), "the action leaves the picker");
+    assert!(seen.borrow().is_empty());
+}
+
+#[gpui_kit::test]
+fn a_menu_opened_again_shows_the_chosen_provider_not_the_line(cx: &mut TestAppContext) {
+    let (cx, _, _) = noted(cx);
+    open(cx);
+    click("picker-provider-dusk", cx);
+    cx.update(|window, cx| window.click("picker", cx));
+    advance(cx, ENTER * 2);
+    assert!(!shown("picker-menu", cx));
+    open(cx);
+    assert_eq!(selected("picker-provider-aster", cx), Some(true));
+    assert_eq!(selected("picker-provider-dusk", cx), Some(false));
+    assert!(shown("picker-model-aster-spark", cx));
+    assert!(!shown("picker-note-text", cx));
+}
+
+#[gpui_kit::test]
+fn the_menu_keeps_its_height_when_the_line_comes_and_goes(cx: &mut TestAppContext) {
+    let (cx, _, _) = noted(cx);
+    open(cx);
+    let menu = bounds("picker-menu", cx).size.height;
+    click("picker-provider-dusk", cx);
+    assert_eq!(bounds("picker-menu", cx).size.height, menu);
+    click("picker-provider-aster", cx);
+    assert_eq!(bounds("picker-menu", cx).size.height, menu);
+}
+
+#[gpui_kit::test]
+fn a_line_for_a_provider_that_has_models_is_not_used(cx: &mut TestAppContext) {
+    init(cx);
+    let (_, cx) = cx.add_window_view(|_, _| NoteOfAster);
+    cx.simulate_resize(size(px(900.), px(700.)));
+    cx.update(|window, cx| window.render_frame(cx));
+    open(cx);
+    assert!(label("picker-provider-aster", cx).is_some());
+    click("picker-provider-aster", cx);
+    assert!(!shown("picker-note-text", cx));
+    assert!(shown("picker-model-aster-spark", cx));
+}
+
+/// A picker given a line for `aster`, which has models.
+struct NoteOfAster;
+
+impl Render for NoteOfAster {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().p(px(16.)).child(
+            ModelPicker::new("picker", aster())
+                .models(models())
+                .notes([ProviderNote::new("aster", "Aster", "Never said.")]),
+        )
+    }
 }
