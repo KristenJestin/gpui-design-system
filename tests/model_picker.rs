@@ -691,3 +691,38 @@ impl Render for NoteOfAster {
         )
     }
 }
+
+#[gpui_kit::test]
+fn a_chosen_provider_with_no_model_is_named_and_says_its_line(cx: &mut TestAppContext) {
+    init(cx);
+    let (_, cx) = cx.add_window_view(|_, _| NoteChosen);
+    cx.simulate_resize(size(px(900.), px(700.)));
+    cx.update(|window, cx| window.render_frame(cx));
+    assert_eq!(label("picker", cx).as_deref(), Some("Dusk"));
+    open(cx);
+    assert_eq!(selected("picker-provider-dusk", cx), Some(true));
+    assert_eq!(selected("picker-provider-aster", cx), Some(false));
+    assert_eq!(
+        label("picker-note-text", cx).as_deref(),
+        Some("Dusk's models need you to sign in.")
+    );
+    assert!(!shown("picker-effort-high", cx));
+    assert!(!shown("picker-model-aster-spark", cx));
+}
+
+/// A picker whose chosen provider, `dusk`, offers no model.
+struct NoteChosen;
+
+impl Render for NoteChosen {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div().size_full().p(px(16.)).child(
+            ModelPicker::new("picker", Chosen::Model("dusk".into(), None))
+                .models(models())
+                .notes([ProviderNote::new(
+                    "dusk",
+                    "Dusk",
+                    "Dusk's models need you to sign in.",
+                )]),
+        )
+    }
+}

@@ -791,7 +791,18 @@ impl RenderOnce for ModelPicker {
             _ => None,
         }
         .unwrap_or(0);
-        let current = self.models.get(at).cloned();
+        // What is chosen may be a provider with no model: the picker then says its name alone.
+        let chosen_note = match &self.chosen {
+            Chosen::Model(provider, _) if !self.models.iter().any(|m| m.provider == *provider) => {
+                self.notes.iter().find(|n| n.provider == *provider)
+            }
+            _ => None,
+        };
+        let current = self
+            .models
+            .get(at)
+            .cloned()
+            .filter(|_| chosen_note.is_none());
         let efforts = current
             .as_ref()
             .map(|m| m.efforts.clone())
@@ -809,7 +820,7 @@ impl RenderOnce for ModelPicker {
                 Some(level) => format!("{} · {} · {level}", m.provider_title, m.name),
                 None => format!("{} · {}", m.provider_title, m.name),
             },
-            None => String::new(),
+            None => chosen_note.map_or_else(String::new, |n| n.provider_title.to_string()),
         }
         .into();
 
@@ -843,7 +854,10 @@ impl RenderOnce for ModelPicker {
                 providers.push((m.provider.clone(), m.provider_title.clone()));
             }
         }
-        let now = current.as_ref().map(|m| m.provider.clone());
+        let now = current
+            .as_ref()
+            .map(|m| m.provider.clone())
+            .or_else(|| chosen_note.map(|n| n.provider.clone()));
         // A provider with no model is listed after the others, with its line.
         let notes: Vec<ProviderNote> = self
             .notes
@@ -856,10 +870,12 @@ impl RenderOnce for ModelPicker {
                 .iter()
                 .map(|n| (n.provider.clone(), n.provider_title.clone())),
         );
+        // The line of the provider looked at, else of the one chosen when it has no model.
         let looking = looking_at
             .read(cx)
             .clone()
-            .filter(|key| notes.iter().any(|n| n.provider == *key));
+            .filter(|key| notes.iter().any(|n| n.provider == *key))
+            .or_else(|| chosen_note.map(|n| n.provider.clone()));
         let on = looking.clone().or(now.clone());
         // The columns are as tall as the longest list they may hold.
         let rows = providers
