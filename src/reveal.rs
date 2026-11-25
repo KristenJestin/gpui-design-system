@@ -450,7 +450,7 @@ impl RenderOnce for PresenceOf {
 /// A line whose text changes while its view stays (the folder a setting results in): it fades
 /// back in over [`HOVER`] from [`SWAP_FROM`] when the text differs from the last frame's, and is
 /// still otherwise. Build it on every frame; it is its own state, and a first text is simply
-/// there. `build` draws the line.
+/// there. `build` draws the line. The opacity it is drawn at is noted in `seen` under `id`.
 pub fn changing(
     id: impl Into<ElementId>,
     text: impl Into<SharedString>,
@@ -479,6 +479,8 @@ struct Changed {
 impl RenderOnce for Changing {
     fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
         let opacity = changed(&self.id, &self.text, window, cx);
+        // Only the incoming content is drawn, so its opacity is the one a test can read.
+        crate::seen::note(&self.id, opacity);
         div()
             .id(self.id)
             .min_w_0()
