@@ -51,6 +51,7 @@ pub struct TreeRow {
     /// A mark before the title, where a folder or a branch has its icon.
     leading: Option<Box<dyn FnOnce(Hsla) -> AnyElement>>,
     foldable: bool,
+    faint: bool,
     on_click: Option<OnClick>,
     on_toggle: Option<OnClick>,
 }
@@ -78,6 +79,7 @@ impl TreeRow {
             second: None,
             leading: None,
             foldable: true,
+            faint: false,
             on_click: None,
             on_toggle: None,
         }
@@ -108,6 +110,14 @@ impl TreeRow {
     /// when something comes, the title never moving, and a click on its place is the row's.
     pub fn foldable(mut self, foldable: bool) -> Self {
         self.foldable = foldable;
+        self
+    }
+
+    /// Whether the title is drawn in the palette's faint ink (false unless said), for a row that
+    /// has nothing to say. Hover and choice bring it up to the text ink, as they do any row's;
+    /// when it changes the ink fades over [`HOVER`].
+    pub fn faint(mut self, faint: bool) -> Self {
+        self.faint = faint;
         self
     }
 
@@ -173,6 +183,17 @@ impl RenderOnce for TreeRow {
         } else {
             mix(mix(p.mute, p.text, now.hover), p.text, chosen)
         };
+        // The title's own ink: the level's, or the faint one, which hover and choice still lift.
+        let quiet = fade(part(&self.id, "faint"), self.faint, HOVER, window, cx);
+        let title_ink = mix(
+            mix(
+                mix(if top { p.text } else { p.mute }, p.faint, quiet),
+                p.text,
+                now.hover,
+            ),
+            p.text,
+            chosen,
+        );
         let background = mix(p.hover.opacity(now.hover), p.sel, chosen);
         // What a mark in the leading slot sits on: the fill over the tree's own colour.
         let fill = over(background, background.a, p.side);
@@ -251,6 +272,7 @@ impl RenderOnce for TreeRow {
         // A title that changes (one the user or a program named) fades to the new one.
         let title_id = ElementId::Name(format!("{}-title", self.id).into());
         let opacity = changed(&title_id, &self.title, window, cx);
+        crate::seen::note_colour(&title_id, title_ink);
         let title = tipped_when_cut(
             div()
                 .id(title_id)
@@ -259,6 +281,7 @@ impl RenderOnce for TreeRow {
                 .overflow_hidden()
                 .whitespace_nowrap()
                 .text_ellipsis()
+                .text_color(title_ink)
                 .opacity(opacity)
                 .child(self.title.clone()),
             self.title.clone(),
